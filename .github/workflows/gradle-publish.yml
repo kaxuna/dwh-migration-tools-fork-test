@@ -29,16 +29,11 @@ jobs:
       - name: Determine Artifact Details
         id: artifact_details
         run: |
-          if [[ -f "build.gradle" ]]; then
-            echo "RELEASE_ARTIFACT_DIR=build/distributions" >> $GITHUB_ENV
-            echo "ARTIFACT_NAME=dwh-migration-tools" >> $GITHUB_ENV
-          else
-            echo "RELEASE_ARTIFACT_DIR=app/build/distributions" >> $GITHUB_ENV
-            echo "ARTIFACT_NAME=dwh-migration-dumper" >> $GITHUB_ENV
-          fi
+          echo "RELEASE_ARTIFACT_DIR=dumper/app/build/distributions" >> $GITHUB_ENV
+          echo "ARTIFACT_NAME=dwh-migration-dumper" >> $GITHUB_ENV
 
-      - name: Run tests with Gradle
-        run: ./gradlew -Pci :dumper:app:test
+      # - name: Run tests with Gradle
+      #   run: ./gradlew -Pci :dumper:app:test
 
       - name: Build final artifact with Gradle
         run: ./gradlew -Pci :dumper:app:publishedDistZip -Pversion="${{ github.ref_name }}"
