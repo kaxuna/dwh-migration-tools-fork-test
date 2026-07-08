@@ -20,6 +20,7 @@ include(
 	':dumper:lib-ext-bigquery',
 	':dumper:lib-ext-hive-metastore',
 	':dumper:connector-api',
+	':dumper:integration-test',
 	':dumper:app',
 	':dumper:connectors:airflow',
 	':dumper:connectors:bigquery',

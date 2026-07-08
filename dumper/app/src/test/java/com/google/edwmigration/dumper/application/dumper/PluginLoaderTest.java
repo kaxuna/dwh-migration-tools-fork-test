@@ -135,16 +135,17 @@ public class PluginLoaderTest {
     List<ClassLoader> loaders = PluginLoader.loadPluginClassLoaders(pluginsDir);
     Map<String, Connector> connectors = new HashMap<>();
 
-    // Simulate the repository's ordering: classpath scan first, then plugins.
+    // Simulate the repository's ordering: classpath scan first, then plugins. The classpath
+    // provides the testFixtures TestConnector (name "test").
     ConnectorRepository.discover(PluginLoaderTest.class.getClassLoader(), connectors);
-    Connector classpathTeradata = connectors.get("teradata");
-    Assert.assertNotNull("Classpath connectors discovered", classpathTeradata);
+    Connector classpathConnector = connectors.get("test");
+    Assert.assertNotNull("Classpath connectors discovered", classpathConnector);
 
     ConnectorRepository.discover(loaders.get(0), connectors);
     Assert.assertSame(
         "Classpath connector not displaced by plugin scan",
-        classpathTeradata,
-        connectors.get("teradata"));
+        classpathConnector,
+        connectors.get("test"));
   }
 
   @Test

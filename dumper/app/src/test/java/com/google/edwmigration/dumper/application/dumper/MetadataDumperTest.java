@@ -200,11 +200,10 @@ public class MetadataDumperTest {
                         "--connector", connector.getName(), "-Dhiveql.rpc.protection=privacy")
                     .run());
 
-    // Assert
+    // Assert. Connectors now live in plugin modules, so in this test only TestConnector is
+    // discoverable and a foreign connector's property is unknown rather than incompatible.
     assertEquals(
-        "Property: name='hiveql.rpc.protection', value='privacy' is not compatible with connector"
-            + " 'test'",
-        exception.getMessage());
+        "Unknown property: name='hiveql.rpc.protection', value='privacy'", exception.getMessage());
   }
 
   @Test

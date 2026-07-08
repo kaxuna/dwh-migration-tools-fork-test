@@ -82,6 +82,11 @@
 			"moduleName": ".*"
 		},
 		{
+			"moduleLicense": "The Go license",
+			"notes": "Same BSD-style license, name as re2j declares it.",
+			"moduleName": "com.google.re2j:re2j"
+		},
+		{
 			"moduleLicense": "Apache License",
 			"moduleName": "org.apache.httpcomponents:httpclient"
 		},
