@@ -21,7 +21,6 @@ import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.google.edwmigration.dumper.application.dumper.connector.Connector;
-import com.google.edwmigration.dumper.application.dumper.connector.bigquery.BigQueryLogsConnector;
 import com.google.edwmigration.dumper.application.dumper.connector.test.TestConnector;
 import java.io.File;
 import java.io.IOException;
@@ -80,7 +79,7 @@ public class MetadataDumperTest {
   @Test
   public void testInstantiate() throws Exception {
     boolean result =
-        new MetadataDumper("--connector", new BigQueryLogsConnector().getName(), "--dry-run").run();
+        new MetadataDumper("--connector", new TestConnector().getName(), "--dry-run").run();
     assertTrue(result);
   }
 

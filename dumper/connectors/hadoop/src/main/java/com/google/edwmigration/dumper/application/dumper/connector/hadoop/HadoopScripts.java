@@ -19,8 +19,8 @@ package com.google.edwmigration.dumper.application.dumper.connector.hadoop;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.base.Suppliers.memoize;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
+import static com.google.common.collect.Maps.immutableEntry;
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.apache.hadoop.thirdparty.com.google.common.collect.Maps.immutableEntry;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;

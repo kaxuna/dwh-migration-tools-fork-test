@@ -55,8 +55,6 @@ dependencies {
     implementation project(':dumper:connector-api')
     implementation project(':dumper:lib-common')
     implementation project(':dumper:lib-dumper-spi')
-    implementation project(':dumper:lib-ext-bigquery')
-    implementation project(':dumper:lib-ext-hive-metastore')
 
     implementation libs.guava
     implementation libs.jopt.simple
@@ -65,62 +63,19 @@ dependencies {
     implementation libs.apache.avro
     implementation libs.apache.commons.csv
     implementation libs.apache.commons.lang3
-    implementation (libs.hadoop.common) {
-        // *-over-slf4j bridges used
-        exclude group: "ch.qos.reload4j", module: "reload4j"
-        exclude group: "org.slf4j", module: "slf4j-reload4j"
-        exclude group: "org.bouncycastle", module: "bcprov-jdk15on" // We use 18, which is the latest and support JDK 1.8+
-        exclude group: "javax.servlet.jsp", module: "jsp-api"
-    }
-    //Overrides for hadoop-common transient deps
-    implementation libs.jetty.server // explicit version for vulnerabilities update
-    implementation libs.netty.handler // explicit version for vulnerabilities update
-    implementation libs.dnsjava // explicit version for vulnerabilities update
-    implementation libs.nimbus.jose.jwt // explicit version for vulnerabilities update
-    implementation libs.zookeeper // explicit version for vulnerabilities update
-    implementation libs.common.configuration2 // explicit version for vulnerabilities update
-    implementation libs.bouncycastle // explicit version for vulnerabilities update
-
-    implementation libs.hadoop.hdfs.client
     implementation(libs.harawata.appdirs) {
         exclude group: "net.java.dev.jna", module: "jna"
     }
     implementation libs.spring.core
     implementation libs.spring.jdbc
     implementation libs.hikaricp
-    implementation libs.rate.limited.logger
     implementation libs.jackson.databind
     implementation libs.jackson.dataformat.yaml
     implementation libs.jackson.datatype.guava
-    implementation libs.google.cloud.bigquery
-
-    //Overrides for google-cloud-bigquery transient deps
-    implementation libs.grpc.netty.shaded // explicit version for vulnerabilities update
-    implementation libs.grpc.protobuf // explicit version for vulnerabilities update
-    implementation libs.grpc.stub // explicit version for vulnerabilities update
-    implementation libs.grpc.auth // explicit version for vulnerabilities update
-    implementation libs.grpc.opentelemetry // explicit version for vulnerabilities update
-    implementation libs.grpc.services // explicit version for vulnerabilities update
-    implementation libs.grpc.rls // explicit version for vulnerabilities update
-    implementation libs.grpc.xds // explicit version for vulnerabilities update
-    implementation libs.grpc.bom // explicit version for vulnerabilities update
-
+    implementation libs.jackson.datatype.jsr310
     implementation libs.google.cloud.nio
     implementation libs.google.cloud.kms
     implementation libs.httpclient5
-    implementation(libs.oozie.client) {
-        exclude group: 'javax.jms', module: 'jms'
-        exclude group: 'junit', module: 'junit'
-        exclude group: 'guru.nidi', module: 'graphviz-java'
-
-        //Not used and has LGPLv3 transient deps
-        exclude group: 'org.apache.oozie', module: 'oozie-fluent-job-api'
-    }
-
-    //Overrides for oozie-client transient deps
-    implementation libs.xerces // explicit version for vulnerabilities update
-
-    implementation libs.hadoop.auth
 
     // `implementation` scope is used because some of our dependencies
     // have log libraries in this scope as transient dependencies
@@ -133,12 +88,18 @@ dependencies {
     // classpath until the distribution ships them as plugins/ directories. Removed by the
     // distribution flip. JDBC drivers and vendor SDKs now ship with their connector modules.
     runtimeOnly project(':dumper:connectors:airflow')
+    runtimeOnly project(':dumper:connectors:bigquery')
+    runtimeOnly project(':dumper:connectors:cloudera')
     runtimeOnly project(':dumper:connectors:generic')
     runtimeOnly project(':dumper:connectors:greenplum')
+    runtimeOnly project(':dumper:connectors:hadoop')
+    runtimeOnly project(':dumper:connectors:hdfs')
+    runtimeOnly project(':dumper:connectors:hive')
     runtimeOnly project(':dumper:connectors:mysql')
     runtimeOnly project(':dumper:connectors:netezza')
     runtimeOnly project(':dumper:connectors:oracle')
     runtimeOnly project(':dumper:connectors:postgresql')
+    runtimeOnly project(':dumper:connectors:ranger')
     runtimeOnly project(':dumper:connectors:redshift')
     runtimeOnly project(':dumper:connectors:snowflake')
     runtimeOnly project(':dumper:connectors:sqlserver')
@@ -161,14 +122,6 @@ dependencies {
     testImplementation libs.mockito.junit.jupiter
     testImplementation libs.junit
     testImplementation libs.wiremock
-
-    // Test Hive 3.1.2
-    testImplementation project(path: ':dumper:lib-ext-hive-metastore', configuration: 'shadow')
-    // Excluded during shadowJar step, same versions as exclusions
-    testRuntimeOnly libs.datanucleus.api.jdo
-    testRuntimeOnly libs.datanucleus.core
-    testRuntimeOnly libs.datanucleus.javax.jdo
-    testRuntimeOnly libs.datanucleus.rdbms
 
     sources "org.slf4j:jcl-over-slf4j:${libs.versions.jcl.over.slf4j.get()}:sources"
     sources "ch.qos.logback:logback-classic:${libs.versions.logback.get()}:sources"
