@@ -64,3 +64,11 @@ tasks.register('generateDependenciesReport') {
         logger.lifecycle("Total configurations processed across all submodules: ${configurationsProcessedTotal}. Total skipped: ${configurationsSkippedTotal}.")
     }
 }
+tasks.register('buildAll') {
+    group = 'build'
+    description = 'Builds every dumper module (core, connector plugins, integration test).'
+    dependsOn subprojects.collect { subproject ->
+        subproject.tasks.matching { it.name == 'build' }
+    }
+    dependsOn ':dumper:integration-test:test'
+}
