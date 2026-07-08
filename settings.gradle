@@ -20,5 +20,11 @@ include(
 	':dumper:lib-ext-bigquery',
 	':dumper:lib-ext-hive-metastore',
 	':dumper:connector-api',
-	':dumper:app'
+	':dumper:app',
+	':dumper:connectors:airflow',
+	':dumper:connectors:generic',
+	':dumper:connectors:mysql',
+	':dumper:connectors:netezza',
+	':dumper:connectors:sqlserver',
+	':dumper:connectors:vertica'
 )

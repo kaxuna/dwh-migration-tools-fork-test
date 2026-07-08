@@ -29,12 +29,16 @@ dependencies {
     implementation libs.jdiagnostics
     implementation libs.spring.core
     implementation libs.hikaricp
+    api libs.apache.commons.csv
+    api libs.apache.commons.lang3
+
     implementation libs.commons.io
-    implementation libs.apache.commons.csv
-    implementation libs.apache.commons.lang3
     implementation libs.jackson.databind
     implementation libs.jackson.dataformat.yaml
     implementation libs.jackson.datatype.guava
+
+    testFixturesApi libs.junit
+    testFixturesImplementation libs.apache.commons.lang3
 }
 
 dependencyLocking {

@@ -138,7 +138,22 @@ dependencies {
     // JNA is required for the Snowflake MFA caching mechanism
     runtimeOnly libs.jna
 
+    // Bridge dependencies: connectors extracted into plugin modules stay on the application
+    // classpath until the distribution ships them as plugins/ directories. Removed by the
+    // distribution flip.
+    runtimeOnly project(':dumper:connectors:airflow')
+    runtimeOnly project(':dumper:connectors:generic')
+    runtimeOnly project(':dumper:connectors:mysql')
+    runtimeOnly project(':dumper:connectors:netezza')
+    runtimeOnly project(':dumper:connectors:sqlserver')
+    runtimeOnly project(':dumper:connectors:vertica')
+
     testFixturesApi testFixtures(project(':dumper:lib-common'))
+    testFixturesApi testFixtures(project(':dumper:connector-api'))
+    testFixturesApi project(':dumper:connector-api')
+    testFixturesImplementation libs.sqlite.jdbc
+    testFixturesImplementation libs.apache.commons.compress
+    testFixturesImplementation libs.jackson.databind
 
     testImplementation libs.sqlite.jdbc
     testImplementation libs.postgresql
