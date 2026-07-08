@@ -52,6 +52,7 @@ dependencies {
 
     annotationProcessor libs.auto.value
 
+    implementation project(':dumper:connector-api')
     implementation project(':dumper:lib-common')
     implementation project(':dumper:lib-dumper-spi')
     implementation project(':dumper:lib-ext-bigquery')
