@@ -21,6 +21,7 @@ import com.google.cloud.kms.v1.DecryptResponse;
 import com.google.cloud.kms.v1.KeyManagementServiceClient;
 import com.google.edwmigration.dumper.application.dumper.MetadataDumper;
 import com.google.edwmigration.dumper.application.dumper.MetadataDumperUsageException;
+import com.google.edwmigration.dumper.application.dumper.plugins.PluginLoader;
 import com.google.gson.Gson;
 import com.google.protobuf.ByteString;
 import java.io.IOException;
@@ -92,6 +93,7 @@ public class Main {
   }
 
   public static void main(String... args) throws Exception {
+    PluginLoader.installPlugins();
     try (CloseableHttpClient httpClient =
         HttpClientBuilder.create()
             .setRetryStrategy(

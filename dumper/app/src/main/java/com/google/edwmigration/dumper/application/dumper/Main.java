@@ -20,6 +20,7 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
+import com.google.edwmigration.dumper.application.dumper.plugins.PluginLoader;
 import java.io.File;
 import java.io.IOException;
 import java.net.URI;
@@ -58,6 +59,7 @@ public class Main {
   }
 
   public static void main(String... args) throws Exception {
+    PluginLoader.installPlugins();
     try {
       AsyncProfiler asyncProfiler = tryInitAsyncProfiler();
 
