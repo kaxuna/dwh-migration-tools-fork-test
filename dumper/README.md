@@ -17,3 +17,20 @@ To get started using the Dumper, read
 
 
 [BQMS]: https://cloud.google.com/bigquery/docs/migration-intro
+
+## Connector plugins
+
+Since the modular restructuring, the Dumper ships each connector as a runtime plugin: the
+distribution zip contains a slim `lib/` (the core CLI) and one `plugins/<vendor>/` directory
+per connector with that vendor's jars. Behavior and the command line are unchanged.
+
+- **Slim a deployment:** delete the `plugins/<vendor>/` directories you do not need.
+- **Custom plugins location:** set `-Ddumper.plugins.dir=<path>` or the
+  `DWH_MIGRATION_DUMPER_PLUGINS` environment variable; the default is `plugins/` next to
+  `bin/` and `lib/`.
+- **Write a connector without forking:** implement
+  `com.google.edwmigration.dumper.application.dumper.connector.Connector` against the
+  `connector-api` module, register it via `META-INF/services` (or `@AutoService`), and drop
+  the jar plus its vendor-specific dependencies into a new `plugins/<name>/` directory.
+
+See [docs/RESTRUCTURE.md](../docs/RESTRUCTURE.md) for the module map and design details.
