@@ -94,8 +94,18 @@ public class MetadataDumper {
           ConnectorRepository.getInstance().getAllNames());
       return false;
     }
-    connector.validate(connectorArguments);
-    return run(connector);
+    // Run the connector with its own class loader as the thread context class loader, so that a
+    // connector loaded from a plugin resolves its JDBC drivers and classpath resources from the
+    // plugin's jars (both AbstractJdbcConnector.newDriver and Guava's Resources use the TCCL).
+    ClassLoader connectorClassLoader = connector.getClass().getClassLoader();
+    ClassLoader previousClassLoader = Thread.currentThread().getContextClassLoader();
+    Thread.currentThread().setContextClassLoader(connectorClassLoader);
+    try {
+      connector.validate(connectorArguments);
+      return run(connector);
+    } finally {
+      Thread.currentThread().setContextClassLoader(previousClassLoader);
+    }
   }
 
   protected boolean run(@Nonnull Connector connector) throws Exception {
