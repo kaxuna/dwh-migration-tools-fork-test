@@ -20,10 +20,10 @@ import static com.google.edwmigration.dumper.application.dumper.connector.terada
 import static com.google.edwmigration.dumper.application.dumper.connector.teradata.MetadataQueryGenerator.createSelectForAllTempTablesVX;
 import static com.google.edwmigration.dumper.application.dumper.connector.teradata.MetadataQueryGenerator.createSelectForDiskSpaceV;
 import static com.google.edwmigration.dumper.application.dumper.connector.teradata.MetadataQueryGenerator.createSelectForTableTextV;
+import static com.google.edwmigration.dumper.application.dumper.connector.teradata.TeradataTestUtils.assertQueryEquals;
 import static com.google.edwmigration.dumper.application.dumper.connector.teradata.query.TeradataSelectBuilder.eq;
 import static com.google.edwmigration.dumper.application.dumper.connector.teradata.query.TeradataSelectBuilder.identifier;
 import static com.google.edwmigration.dumper.application.dumper.connector.teradata.query.TeradataSelectBuilder.stringLiteral;
-import static com.google.edwmigration.dumper.application.dumper.test.DumperTestUtils.assertQueryEquals;
 
 import com.google.common.collect.ImmutableList;
 import java.util.Optional;

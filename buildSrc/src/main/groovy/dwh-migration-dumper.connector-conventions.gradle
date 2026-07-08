@@ -35,6 +35,7 @@ dependencies {
 
     testImplementation testFixtures(project(':dumper:connector-api'))
     testImplementation testFixtures(project(':dumper:app'))
+    testImplementation libs.mockito.core
 }
 
 dependencyLocking {

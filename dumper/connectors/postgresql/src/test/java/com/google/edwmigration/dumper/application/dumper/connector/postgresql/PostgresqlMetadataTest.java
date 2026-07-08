@@ -18,7 +18,6 @@ package com.google.edwmigration.dumper.application.dumper.connector.postgresql;
 
 import com.google.edwmigration.dumper.application.dumper.connector.AbstractConnectorExecutionTest;
 import com.google.edwmigration.dumper.application.dumper.connector.MetadataConnector;
-import com.google.edwmigration.dumper.application.dumper.connector.mysql.MysqlMetadataConnectorTest;
 import com.google.edwmigration.dumper.test.TestUtils;
 import java.io.File;
 import org.junit.Assume;
@@ -33,7 +32,7 @@ import org.slf4j.LoggerFactory;
 public class PostgresqlMetadataTest extends AbstractConnectorExecutionTest {
 
   @SuppressWarnings("UnusedVariable")
-  private static final Logger logger = LoggerFactory.getLogger(MysqlMetadataConnectorTest.class);
+  private static final Logger logger = LoggerFactory.getLogger(PostgresqlMetadataTest.class);
 
   private static final String SUBPROJECT = "compilerworks-application-dumper";
 

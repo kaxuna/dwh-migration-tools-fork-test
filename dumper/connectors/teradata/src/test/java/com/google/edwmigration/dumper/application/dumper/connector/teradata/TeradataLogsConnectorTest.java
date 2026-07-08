@@ -20,7 +20,7 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.Iterables.getOnlyElement;
 import static com.google.edwmigration.dumper.application.dumper.connector.teradata.AbstractTeradataConnector.DEF_LOG_TABLE;
 import static com.google.edwmigration.dumper.application.dumper.connector.teradata.AbstractTeradataConnector.DEF_SQL_TABLE;
-import static com.google.edwmigration.dumper.application.dumper.test.DumperTestUtils.assertQueryEquals;
+import static com.google.edwmigration.dumper.application.dumper.connector.teradata.TeradataTestUtils.assertQueryEquals;
 import static java.nio.file.FileSystems.newFileSystem;
 import static java.time.ZoneOffset.UTC;
 import static org.junit.Assert.assertEquals;

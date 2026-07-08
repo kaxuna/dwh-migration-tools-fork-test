@@ -18,11 +18,11 @@ package com.google.edwmigration.dumper.application.dumper.connector.snowflake;
 
 import static org.junit.Assert.assertEquals;
 
+import com.google.common.collect.Lists;
 import com.google.edwmigration.dumper.application.dumper.task.AbstractJdbcTask;
 import com.google.edwmigration.dumper.application.dumper.task.JdbcSelectTask;
 import com.google.edwmigration.dumper.application.dumper.task.Summary;
 import java.util.List;
-import org.apache.hadoop.util.Lists;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;

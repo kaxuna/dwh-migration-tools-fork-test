@@ -18,7 +18,7 @@ package com.google.edwmigration.dumper.application.dumper.connector.snowflake;
 
 import static com.google.common.base.CaseFormat.UPPER_CAMEL;
 import static com.google.common.base.CaseFormat.UPPER_UNDERSCORE;
-import static org.apache.hadoop.util.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.common.base.CharMatcher;
 import com.google.common.base.Joiner;

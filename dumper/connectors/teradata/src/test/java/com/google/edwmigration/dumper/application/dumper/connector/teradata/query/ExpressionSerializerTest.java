@@ -17,6 +17,7 @@
 package com.google.edwmigration.dumper.application.dumper.connector.teradata.query;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.edwmigration.dumper.application.dumper.connector.teradata.TeradataTestUtils.assertQueryEquals;
 import static com.google.edwmigration.dumper.application.dumper.connector.teradata.query.TeradataSelectBuilder.add;
 import static com.google.edwmigration.dumper.application.dumper.connector.teradata.query.TeradataSelectBuilder.cast;
 import static com.google.edwmigration.dumper.application.dumper.connector.teradata.query.TeradataSelectBuilder.eq;
@@ -30,7 +31,6 @@ import static com.google.edwmigration.dumper.application.dumper.connector.terada
 import static com.google.edwmigration.dumper.application.dumper.connector.teradata.query.model.SelectExpression.select;
 import static com.google.edwmigration.dumper.application.dumper.connector.teradata.query.model.SelectExpression.selectTop;
 import static com.google.edwmigration.dumper.application.dumper.connector.teradata.query.model.SelectExpression.union;
-import static com.google.edwmigration.dumper.application.dumper.test.DumperTestUtils.assertQueryEquals;
 import static java.util.stream.Stream.concat;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;

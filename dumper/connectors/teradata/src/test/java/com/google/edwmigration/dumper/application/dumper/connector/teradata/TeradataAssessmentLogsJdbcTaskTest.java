@@ -16,7 +16,7 @@
  */
 package com.google.edwmigration.dumper.application.dumper.connector.teradata;
 
-import static com.google.edwmigration.dumper.application.dumper.test.DumperTestUtils.assertQueryEquals;
+import static com.google.edwmigration.dumper.application.dumper.connector.teradata.TeradataTestUtils.assertQueryEquals;
 import static java.util.Collections.emptyList;
 import static org.junit.Assert.assertFalse;
 
