@@ -236,6 +236,7 @@ org.hamcrest:hamcrest-core:1.3=testCompileClasspath,testRuntimeClasspath
 org.json:json:20250517=testRuntimeClasspath
 org.jspecify:jspecify:1.0.0=testRuntimeClasspath
 org.mockito:mockito-core:4.11.0=testCompileClasspath,testRuntimeClasspath
+org.mockito:mockito-inline:4.11.0=testCompileClasspath,testRuntimeClasspath
 org.objenesis:objenesis:3.3=testRuntimeClasspath
 org.postgresql:postgresql:42.7.9=testCompileClasspath,testRuntimeClasspath
 org.slf4j:jcl-over-slf4j:2.0.17=testRuntimeClasspath

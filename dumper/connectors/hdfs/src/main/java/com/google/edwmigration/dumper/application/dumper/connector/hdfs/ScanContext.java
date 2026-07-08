@@ -16,8 +16,6 @@
  */
 package com.google.edwmigration.dumper.application.dumper.connector.hdfs;
 
-import static com.google.edwmigration.dumper.application.dumper.TasksRunner.PROGRESS_LOG;
-
 import com.google.edwmigration.dumper.application.dumper.task.AbstractTask;
 import com.google.edwmigration.dumper.plugin.ext.jdk.concurrent.ExecutorManager;
 import com.google.edwmigration.dumper.plugin.lib.dumper.spi.HdfsExtractionDumpFormat.HdfsFormat;
@@ -43,6 +41,10 @@ import org.slf4j.LoggerFactory;
 
 /** A ScanContext is used to walk & scan (possibly in parallel) a HDFS or parts of it. */
 final class ScanContext implements Closeable {
+
+  // Same named logger as TasksRunner.PROGRESS_LOG (the connector must not depend on the app).
+  private static final org.slf4j.Logger PROGRESS_LOG =
+      org.slf4j.LoggerFactory.getLogger("progress-logger");
   private static final Logger logger = LoggerFactory.getLogger(ScanContext.class);
   private static final DateTimeFormatter DATE_FORMAT =
       DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS").withZone(ZoneOffset.UTC);
