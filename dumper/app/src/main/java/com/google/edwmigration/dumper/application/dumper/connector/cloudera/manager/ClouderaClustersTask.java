@@ -20,16 +20,15 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.io.ByteSink;
 import com.google.edwmigration.dumper.application.dumper.connector.cloudera.manager.ClouderaManagerHandle.ClouderaClusterDTO;
-import com.google.edwmigration.dumper.application.dumper.connector.cloudera.manager.dto.ApiClusterDTO;
-import com.google.edwmigration.dumper.application.dumper.connector.cloudera.manager.dto.ApiClusterListDTO;
+import com.google.edwmigration.dumper.application.dumper.connector.cloudera.manager.dto.ApiClusterDto;
+import com.google.edwmigration.dumper.application.dumper.connector.cloudera.manager.dto.ApiClusterListDto;
 import com.google.edwmigration.dumper.application.dumper.task.TaskRunContext;
-import java.io.Writer;
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 import javax.annotation.Nonnull;
+import org.apache.hc.core5.net.URIBuilder;
 import org.apache.http.HttpStatus;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
@@ -50,20 +49,22 @@ public class ClouderaClustersTask extends AbstractClouderaManagerTask {
   protected void doRun(
       TaskRunContext context, @Nonnull ByteSink sink, @Nonnull ClouderaManagerHandle handle)
       throws Exception {
-    CloseableHttpClient httpClient = handle.getHttpClient();
+    CloseableHttpClient httpClient = handle.getClouderaManagerHttpClient();
 
-    ApiClusterListDTO clusterList;
+    ApiClusterListDto clusterList;
 
     if (context.getArguments().getCluster() != null) {
       final String clusterName = context.getArguments().getCluster();
+      URI clusterDetailsUri =
+          new URIBuilder(handle.getApiURI()).appendPath("clusters").appendPath(clusterName).build();
+
       try (CloseableHttpResponse clusterResponse =
-          httpClient.execute(new HttpGet(handle.getApiURI() + "/clusters/" + clusterName))) {
-
-        ApiClusterDTO cluster =
+          httpClient.execute(new HttpGet(clusterDetailsUri))) {
+        ApiClusterDto cluster =
             parseJsonStringToObject(
-                EntityUtils.toString(clusterResponse.getEntity()), ApiClusterDTO.class);
+                EntityUtils.toString(clusterResponse.getEntity()), ApiClusterDto.class);
 
-        clusterList = new ApiClusterListDTO();
+        clusterList = new ApiClusterListDto();
         clusterList.setClusters(ImmutableList.of(cluster));
       }
     } else {
@@ -74,16 +75,16 @@ public class ClouderaClustersTask extends AbstractClouderaManagerTask {
       try (CloseableHttpResponse clustersResponse =
           httpClient.execute(new HttpGet(handle.getApiURI() + "/clusters?clusterType=ANY"))) {
         String clustersJson = EntityUtils.toString(clustersResponse.getEntity());
-        clusterList = parseJsonStringToObject(clustersJson, ApiClusterListDTO.class);
+        clusterList = parseJsonStringToObject(clustersJson, ApiClusterListDto.class);
       }
     }
 
-    try (Writer writer = sink.asCharSink(StandardCharsets.UTF_8).openBufferedStream()) {
+    try (JsonWriter writer = new JsonWriter(sink)) {
       writer.write(serializeObjectToJsonString(clusterList));
     }
 
     List<ClouderaClusterDTO> clusters = new ArrayList<>();
-    for (ApiClusterDTO item : clusterList.getClusters()) {
+    for (ApiClusterDto item : clusterList.getClusters()) {
       String clusterId = requestClusterIdByName(httpClient, handle.getBaseURI(), item.getName());
       clusters.add(ClouderaClusterDTO.create(clusterId, item.getName()));
     }
@@ -96,7 +97,12 @@ public class ClouderaClustersTask extends AbstractClouderaManagerTask {
 
   private String requestClusterIdByName(
       CloseableHttpClient httpClient, URI baseUri, String clusterName) throws Exception {
-    String requestUrl = baseUri + "/cmf/clusters/" + clusterName + "/status.json";
+    URI requestUrl =
+        new URIBuilder(baseUri)
+            .appendPath("cmf/clusters")
+            .appendPath(clusterName)
+            .appendPath("status.json")
+            .build();
 
     try (CloseableHttpResponse clusterStatus = httpClient.execute(new HttpGet(requestUrl))) {
       if (HttpStatus.SC_OK != clusterStatus.getStatusLine().getStatusCode()) {

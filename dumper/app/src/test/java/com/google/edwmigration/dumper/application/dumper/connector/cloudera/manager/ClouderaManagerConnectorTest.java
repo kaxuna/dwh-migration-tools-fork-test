@@ -19,6 +19,10 @@ package com.google.edwmigration.dumper.application.dumper.connector.cloudera.man
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.edwmigration.dumper.application.dumper.ConnectorArguments;
@@ -27,11 +31,14 @@ import com.google.edwmigration.dumper.application.dumper.task.DumpMetadataTask;
 import com.google.edwmigration.dumper.application.dumper.task.FormatTask;
 import com.google.edwmigration.dumper.application.dumper.task.Task;
 import com.google.edwmigration.dumper.application.dumper.task.TaskCategory;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import org.apache.http.impl.client.CloseableHttpClient;
 import org.junit.Test;
+import org.mockito.MockedStatic;
 
 public class ClouderaManagerConnectorTest {
   private static final String clouderaRequiredArgs =
@@ -55,8 +62,10 @@ public class ClouderaManagerConnectorTest {
                 ImmutableMap.of(
                     "cluster-cpu.jsonl", TaskCategory.REQUIRED,
                     "host-ram.jsonl", TaskCategory.REQUIRED,
+                    "service-resource-allocation.jsonl", TaskCategory.OPTIONAL,
                     "yarn-applications.jsonl", TaskCategory.OPTIONAL,
-                    "yarn-application-types.jsonl", TaskCategory.OPTIONAL))
+                    "yarn-application-types.jsonl", TaskCategory.OPTIONAL,
+                    "yarn-application-spark-metadata.jsonl", TaskCategory.OPTIONAL))
             .build();
     List<Task<?>> tasks = new ArrayList<>();
 
@@ -79,16 +88,20 @@ public class ClouderaManagerConnectorTest {
                     "compilerworks-metadata.yaml", DumpMetadataTask.class,
                     "compilerworks-format.txt", FormatTask.class,
                     "clusters.json", ClouderaClustersTask.class,
-                    "cmf-hosts.jsonl", ClouderaCMFHostsTask.class,
-                    "api-hosts.jsonl", ClouderaAPIHostsTask.class,
+                    "cmf-hosts.jsonl", ClouderaCmfHostsTask.class,
+                    "api-hosts.jsonl", ClouderaApiHostsTask.class,
                     "services.jsonl", ClouderaServicesTask.class))
             .putAll(
                 ImmutableMap.of(
                     "host-components.jsonl", ClouderaHostComponentsTask.class,
-                    "cluster-cpu.jsonl", ClouderaClusterCPUChartTask.class,
-                    "host-ram.jsonl", ClouderaHostRAMChartTask.class,
+                    "cluster-cpu.jsonl", ClouderaClusterResourceAllocationChartTask.class,
+                    "host-ram.jsonl", ClouderaHostResourceAllocationChartTask.class,
+                    "service-resource-allocation.jsonl",
+                        ClouderaServiceResourceAllocationChartTask.class,
                     "yarn-applications.jsonl", ClouderaYarnApplicationsTask.class,
-                    "yarn-application-types.jsonl", ClouderaYarnApplicationTypeTask.class))
+                    "yarn-application-types.jsonl", ClouderaYarnApplicationTypeTask.class,
+                    "yarn-application-spark-metadata.jsonl",
+                        ClouderaSparkYarnApplicationMetadataTask.class))
             .build();
     List<Task<?>> tasks = new ArrayList<>();
 
@@ -128,8 +141,10 @@ public class ClouderaManagerConnectorTest {
                 ImmutableMap.of(
                     "cluster-cpu.jsonl", TaskCategory.REQUIRED,
                     "host-ram.jsonl", TaskCategory.REQUIRED,
+                    "service-resource-allocation.jsonl", TaskCategory.OPTIONAL,
                     "yarn-applications.jsonl", TaskCategory.OPTIONAL,
-                    "yarn-application-types.jsonl", TaskCategory.OPTIONAL))
+                    "yarn-application-types.jsonl", TaskCategory.OPTIONAL,
+                    "yarn-application-spark-metadata.jsonl", TaskCategory.OPTIONAL))
             .build();
     List<Task<?>> tasks = new ArrayList<>();
 
@@ -161,16 +176,20 @@ public class ClouderaManagerConnectorTest {
                     "compilerworks-metadata.yaml", DumpMetadataTask.class,
                     "compilerworks-format.txt", FormatTask.class,
                     "clusters.json", ClouderaClustersTask.class,
-                    "cmf-hosts.jsonl", ClouderaCMFHostsTask.class,
-                    "api-hosts.jsonl", ClouderaAPIHostsTask.class,
+                    "cmf-hosts.jsonl", ClouderaCmfHostsTask.class,
+                    "api-hosts.jsonl", ClouderaApiHostsTask.class,
                     "services.jsonl", ClouderaServicesTask.class,
                     "host-components.jsonl", ClouderaHostComponentsTask.class))
             .putAll(
                 ImmutableMap.of(
-                    "cluster-cpu.jsonl", ClouderaClusterCPUChartTask.class,
-                    "host-ram.jsonl", ClouderaHostRAMChartTask.class,
+                    "cluster-cpu.jsonl", ClouderaClusterResourceAllocationChartTask.class,
+                    "host-ram.jsonl", ClouderaHostResourceAllocationChartTask.class,
+                    "service-resource-allocation.jsonl",
+                        ClouderaServiceResourceAllocationChartTask.class,
                     "yarn-applications.jsonl", ClouderaYarnApplicationsTask.class,
-                    "yarn-application-types.jsonl", ClouderaYarnApplicationTypeTask.class))
+                    "yarn-application-types.jsonl", ClouderaYarnApplicationTypeTask.class,
+                    "yarn-application-spark-metadata.jsonl",
+                        ClouderaSparkYarnApplicationMetadataTask.class))
             .build();
     List<Task<?>> tasks = new ArrayList<>();
 
@@ -247,6 +266,93 @@ public class ClouderaManagerConnectorTest {
 
     assertEquals("One DumpMetadataTask is expected", dumpMetadataCount, 1);
     assertEquals("One FormatTask is expected", formatCount, 1);
+  }
+
+  @Test
+  public void open_success() throws Exception {
+    try (MockedStatic<ClouderaHttpClientFactory> httpClientFactory =
+            mockStatic(ClouderaHttpClientFactory.class);
+        MockedStatic<ClouderaConnectorVerifier> connectorVerifier =
+            mockStatic(ClouderaConnectorVerifier.class)) {
+      CloseableHttpClient httpClient = mock(CloseableHttpClient.class);
+      httpClientFactory
+          .when(() -> ClouderaHttpClientFactory.createClouderaManagerClient(any(), any(), any()))
+          .thenReturn(httpClient);
+      httpClientFactory
+          .when(() -> ClouderaHttpClientFactory.createBasicAuthClient(any(), any()))
+          .thenReturn(httpClient);
+
+      ConnectorArguments arguments =
+          new ConnectorArguments(
+              "--connector",
+              "cloudera-manager",
+              "--url",
+              "http://localhost",
+              "--user",
+              "user",
+              "--password",
+              "password");
+      ClouderaManagerConnector connector = new ClouderaManagerConnector();
+
+      // Act
+      ClouderaManagerHandle handle = connector.open(arguments);
+
+      // Assert
+      assertNotNull(handle);
+      httpClientFactory.verify(
+          () ->
+              ClouderaHttpClientFactory.createClouderaManagerClient(
+                  any(URI.class), eq("user"), eq("password")));
+      httpClientFactory.verify(
+          () -> ClouderaHttpClientFactory.createBasicAuthClient(eq("user"), eq("password")));
+      connectorVerifier.verify(() -> ClouderaConnectorVerifier.verify(any(), any()));
+    }
+  }
+
+  @Test
+  public void open_verifierFails_throwsException() throws Exception {
+    try (MockedStatic<ClouderaHttpClientFactory> httpClientFactory =
+            mockStatic(ClouderaHttpClientFactory.class);
+        MockedStatic<ClouderaConnectorVerifier> connectorVerifier =
+            mockStatic(ClouderaConnectorVerifier.class)) {
+      CloseableHttpClient httpClient = mock(CloseableHttpClient.class);
+      httpClientFactory
+          .when(() -> ClouderaHttpClientFactory.createClouderaManagerClient(any(), any(), any()))
+          .thenReturn(httpClient);
+      httpClientFactory
+          .when(() -> ClouderaHttpClientFactory.createBasicAuthClient(any(), any()))
+          .thenReturn(httpClient);
+
+      ConnectorArguments arguments =
+          new ConnectorArguments(
+              "--connector",
+              "cloudera-manager",
+              "--url",
+              "http://localhost",
+              "--user",
+              "user",
+              "--password",
+              "password");
+      ClouderaManagerConnector connector = new ClouderaManagerConnector();
+
+      RuntimeException expectedException = new RuntimeException("Verification failed");
+      connectorVerifier
+          .when(() -> ClouderaConnectorVerifier.verify(any(), any()))
+          .thenThrow(expectedException);
+
+      // Act & Assert
+      RuntimeException actualException =
+          assertThrows(RuntimeException.class, () -> connector.open(arguments));
+      assertEquals(expectedException, actualException);
+
+      httpClientFactory.verify(
+          () ->
+              ClouderaHttpClientFactory.createClouderaManagerClient(
+                  any(URI.class), eq("user"), eq("password")));
+      httpClientFactory.verify(
+          () -> ClouderaHttpClientFactory.createBasicAuthClient(eq("user"), eq("password")));
+      connectorVerifier.verify(() -> ClouderaConnectorVerifier.verify(any(), any()));
+    }
   }
 
   private static ConnectorArguments args(String s) throws Exception {

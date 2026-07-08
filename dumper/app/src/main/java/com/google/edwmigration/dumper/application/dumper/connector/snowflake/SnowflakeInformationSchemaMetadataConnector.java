@@ -19,11 +19,15 @@ package com.google.edwmigration.dumper.application.dumper.connector.snowflake;
 import static com.google.edwmigration.dumper.application.dumper.connector.snowflake.SnowflakeInput.SCHEMA_ONLY_SOURCE;
 
 import com.google.auto.service.AutoService;
+import com.google.edwmigration.dumper.application.dumper.ConnectorArguments;
 import com.google.edwmigration.dumper.application.dumper.connector.Connector;
+import java.io.IOException;
 import javax.annotation.Nonnull;
+import javax.annotation.ParametersAreNonnullByDefault;
 
 /** @author shevek */
 @AutoService(Connector.class)
+@ParametersAreNonnullByDefault
 public class SnowflakeInformationSchemaMetadataConnector extends SnowflakeMetadataConnector {
 
   public SnowflakeInformationSchemaMetadataConnector() {
@@ -34,5 +38,17 @@ public class SnowflakeInformationSchemaMetadataConnector extends SnowflakeMetada
   @Nonnull
   public String getDescription() {
     return "Dumps metadata from Snowflake, using INFORMATION_SCHEMA only.";
+  }
+
+  @Override
+  public void printHelp(@Nonnull Appendable out) throws IOException {
+    out.append(AbstractSnowflakeConnector.describeAsDelegate(this, "snowflake"));
+  }
+
+  @Override
+  public final void validateForConnector(ConnectorArguments arguments) {
+    if (arguments.isAssessment()) {
+      throw SnowflakeUsageException.unsupportedAssessment();
+    }
   }
 }

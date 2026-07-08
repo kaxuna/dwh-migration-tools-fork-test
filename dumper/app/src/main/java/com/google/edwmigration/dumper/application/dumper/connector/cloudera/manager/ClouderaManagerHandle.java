@@ -19,6 +19,7 @@ package com.google.edwmigration.dumper.application.dumper.connector.cloudera.man
 import com.google.auto.value.AutoValue;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.io.Closer;
 import com.google.edwmigration.dumper.application.dumper.handle.Handle;
 import java.io.IOException;
 import java.net.URI;
@@ -33,18 +34,29 @@ import org.apache.http.impl.client.CloseableHttpClient;
 public class ClouderaManagerHandle implements Handle {
 
   private final URI apiURI;
-  private final CloseableHttpClient httpClient;
+  private final CloseableHttpClient clouderaManagerHttpClient;
+  private final CloseableHttpClient basicAuthHttpClient;
+  private final Closer closer;
 
   private ImmutableList<ClouderaClusterDTO> clusters;
   private ImmutableList<ClouderaHostDTO> hosts;
+  private ImmutableList<ClouderaYarnApplicationDTO> sparkYarnApplications;
 
-  public ClouderaManagerHandle(URI apiURI, CloseableHttpClient httpClient) {
+  public ClouderaManagerHandle(
+      URI apiURI,
+      CloseableHttpClient clouderaManagerHttpClient,
+      CloseableHttpClient basicAuthHttpClient) {
     Preconditions.checkNotNull(apiURI, "Cloudera's apiURI can't be null.");
-    Preconditions.checkNotNull(httpClient, "httpClient can't be null.");
+    Preconditions.checkNotNull(clouderaManagerHttpClient, "ClouderaManager client can't be null.");
+    Preconditions.checkNotNull(basicAuthHttpClient, "BasicAuth client can't be null.");
 
     // Always add trailing slash for safety
     this.apiURI = unify(apiURI);
-    this.httpClient = httpClient;
+    this.clouderaManagerHttpClient = clouderaManagerHttpClient;
+    this.basicAuthHttpClient = basicAuthHttpClient;
+    this.closer = Closer.create();
+    closer.register(this.clouderaManagerHttpClient);
+    closer.register(this.basicAuthHttpClient);
   }
 
   /** 1. Remove query params and url fragments 2. Add trailing slash for safety */
@@ -72,8 +84,12 @@ public class ClouderaManagerHandle implements Handle {
     return apiURI.resolve("/");
   }
 
-  public CloseableHttpClient getHttpClient() {
-    return httpClient;
+  public CloseableHttpClient getClouderaManagerHttpClient() {
+    return clouderaManagerHttpClient;
+  }
+
+  public CloseableHttpClient getBasicAuthHttpClient() {
+    return basicAuthHttpClient;
   }
 
   @CheckForNull
@@ -85,10 +101,8 @@ public class ClouderaManagerHandle implements Handle {
     Preconditions.checkNotNull(clusters, "Clusters can't be initialised to null list.");
     Preconditions.checkArgument(
         !clusters.isEmpty(), "Clusters can't be initialised to empty list.");
+    Preconditions.checkState(this.clusters == null, "The cluster already initialized.");
 
-    if (this.clusters != null) {
-      throw new IllegalStateException("The cluster already initialized!");
-    }
     this.clusters = ImmutableList.copyOf(clusters);
   }
 
@@ -97,26 +111,37 @@ public class ClouderaManagerHandle implements Handle {
     return hosts;
   }
 
-  public synchronized void initHostsIfNull(List<ClouderaHostDTO> hosts) {
-    // Todo
-    // Preconditions.checkNotNull(hosts, "Hosts can't be initialised to null list.");
-    // Preconditions.checkArgument(!hosts.isEmpty(), "Hosts can't be initialised to empty list.");
+  public synchronized void initHosts(List<ClouderaHostDTO> hosts) {
+    Preconditions.checkNotNull(hosts, "Hosts can't be initialised to null list.");
+    Preconditions.checkArgument(!hosts.isEmpty(), "Hosts can't be initialised to empty list.");
+    Preconditions.checkState(this.hosts == null, "Hosts already initialized.");
 
-    if (this.hosts == null) {
-      this.hosts = ImmutableList.copyOf(hosts);
-    }
+    this.hosts = ImmutableList.copyOf(hosts);
+  }
+
+  @CheckForNull
+  public synchronized ImmutableList<ClouderaYarnApplicationDTO> getSparkYarnApplications() {
+    return sparkYarnApplications;
+  }
+
+  public synchronized void initSparkYarnApplications(
+      List<ClouderaYarnApplicationDTO> sparkYarnApplications) {
+    Preconditions.checkNotNull(
+        sparkYarnApplications, "Spark YARN applications can't be initialised to null list.");
+    Preconditions.checkState(
+        this.sparkYarnApplications == null, "Spark YARN applications already initialized.");
+
+    this.sparkYarnApplications = ImmutableList.copyOf(sparkYarnApplications);
   }
 
   @Override
-  public void close() throws IOException {
-    if (httpClient != null) {
-      try {
-        httpClient.close();
-      } catch (IOException ignore) {
-        // The intention is to do graceful shutdown and try to release the resource.
-        // In case of errors we do not need to interrupt the execution flow
-        // because the e2e use case might be successful
-      }
+  public synchronized void close() throws IOException {
+    try {
+      closer.close();
+    } catch (IOException ignore) {
+      // The intention is to do graceful shutdown and try to release the resource.
+      // In case of errors we do not need to interrupt the execution flow
+      // because the e2e use case might be successful
     }
   }
 
@@ -144,5 +169,18 @@ public class ClouderaManagerHandle implements Handle {
     abstract String getId();
 
     abstract String getName();
+  }
+
+  @AutoValue
+  public abstract static class ClouderaYarnApplicationDTO {
+    public static ClouderaYarnApplicationDTO create(String id, String clusterName) {
+      return new AutoValue_ClouderaManagerHandle_ClouderaYarnApplicationDTO(id, clusterName);
+    }
+
+    @CheckForNull
+    @Nullable
+    abstract String getId();
+
+    abstract String getClusterName();
   }
 }

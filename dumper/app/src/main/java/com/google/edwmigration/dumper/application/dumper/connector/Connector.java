@@ -16,13 +16,25 @@
  */
 package com.google.edwmigration.dumper.application.dumper.connector;
 
-import com.google.common.base.Preconditions;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
+import static org.springframework.core.annotation.AnnotationUtils.getDeclaredRepeatableAnnotations;
+
+import com.google.common.collect.ImmutableList;
 import com.google.edwmigration.dumper.application.dumper.ConnectorArguments;
+import com.google.edwmigration.dumper.application.dumper.InputDescriptor;
+import com.google.edwmigration.dumper.application.dumper.annotations.RespectsInput;
 import com.google.edwmigration.dumper.application.dumper.handle.Handle;
 import com.google.edwmigration.dumper.application.dumper.task.Task;
+import java.io.IOException;
 import java.time.Clock;
 import java.time.ZonedDateTime;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import javax.annotation.Nonnull;
 
 /** @author shevek */
@@ -50,25 +62,21 @@ public interface Connector {
    * @param arguments cli params
    * @throws RuntimeException if incorrect set of arguments passed to the particular connector
    */
-  default void validate(ConnectorArguments arguments) {}
+  default void validate(@Nonnull ConnectorArguments arguments) {}
 
-  default void validateDateRange(ConnectorArguments arguments) {
-    ZonedDateTime startDate = arguments.getStartDate();
-    ZonedDateTime endDate = arguments.getEndDate();
+  static void validateDateRange(@Nonnull ConnectorArguments arguments) {
+    ZonedDateTime start = arguments.getStartDate();
+    ZonedDateTime end = arguments.getEndDate();
 
-    if (startDate != null) {
-      Preconditions.checkNotNull(
-          endDate, "End date must be specified with start date, but was null.");
-      Preconditions.checkState(
-          startDate.isBefore(endDate),
-          "Start date [%s] must be before end date [%s].",
-          startDate,
-          endDate);
-    } else {
-      Preconditions.checkState(
-          endDate == null,
-          "End date can be specified only with start date, but start date was null.");
+    if (start == null && end == null) {
+      return;
     }
+    checkNotNull(start, "End date can be specified only with start date, but start date was null.");
+    // The assignment makes 'end' recognized as @Nonnull.
+    end = checkNotNull(end, "End date must be specified with start date, but was null.");
+
+    String message = String.format("Start date [%s] must be before end date [%s].", start, end);
+    checkState(end.isAfter(start), message);
   }
 
   void addTasksTo(@Nonnull List<? super Task<?>> out, @Nonnull ConnectorArguments arguments)
@@ -79,4 +87,39 @@ public interface Connector {
 
   @Nonnull
   Iterable<ConnectorProperty> getPropertyConstants();
+
+  default void printHelp(@Nonnull Appendable out) throws IOException {
+    out.append("* " + getName());
+    String description = getDescription();
+    if (!description.isEmpty()) {
+      out.append(" - " + description);
+    }
+    out.append("\n");
+    for (InputDescriptor descriptor : getAcceptsInputs(this)) {
+      out.append(String.format("%8s%s\n", "", descriptor));
+    }
+  }
+
+  @Nonnull
+  static Collection<InputDescriptor> getAcceptsInputs(@Nonnull Connector connector) {
+
+    ArrayList<Class<?>> classes = new ArrayList<>();
+    for (Class<?> type = connector.getClass(); type != null; type = type.getSuperclass()) {
+      classes.add(type);
+    }
+
+    Map<String, InputDescriptor> map = new HashMap<>();
+    for (Class<?> type : classes) {
+      Set<RespectsInput> respectsInputs =
+          getDeclaredRepeatableAnnotations(type, RespectsInput.class);
+      for (RespectsInput item : respectsInputs) {
+        InputDescriptor descriptor = new InputDescriptor(item);
+        map.putIfAbsent(descriptor.getKey(), descriptor);
+      }
+    }
+
+    return map.values().stream()
+        .sorted(InputDescriptor.comparator())
+        .collect(ImmutableList.toImmutableList());
+  }
 }

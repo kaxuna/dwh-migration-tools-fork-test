@@ -20,8 +20,15 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
+import java.io.File;
+import java.io.IOException;
+import java.net.URI;
+import java.nio.file.*;
+import java.util.Collections;
+import java.util.Map;
 import java.util.Objects;
-import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+import one.profiler.AsyncProfiler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -29,17 +36,6 @@ import org.slf4j.LoggerFactory;
 public class Main {
 
   private static final Logger logger = LoggerFactory.getLogger(Main.class);
-  private static final TelemetryProcessor telemetryProcessor = new TelemetryProcessor();
-
-  private final MetadataDumper metadataDumper;
-
-  public Main(MetadataDumper metadataDumper) {
-    this.metadataDumper = metadataDumper;
-  }
-
-  public boolean run(@Nonnull String... args) throws Exception {
-    return metadataDumper.run(args);
-  }
 
   private static void printErrorMessages(Throwable e) {
     new SummaryPrinter()
@@ -63,15 +59,22 @@ public class Main {
 
   public static void main(String... args) throws Exception {
     try {
-      StartUpMetaInfoProcessor.printMetaInfo();
-      telemetryProcessor.setDumperMetadata(StartUpMetaInfoProcessor.getDumperMetadata());
+      AsyncProfiler asyncProfiler = tryInitAsyncProfiler();
 
-      Main main = new Main(new MetadataDumper(telemetryProcessor));
+      StartUpMetaInfoProcessor.printMetaInfo();
 
       if (args.length == 0) {
         args = new String[] {"--help"};
       }
-      if (!main.run(args)) {
+
+      MetadataDumper metadataDumper =
+          new MetadataDumper(
+              (outputFileLocation) -> {
+                stopProfileAndAppendToZip(asyncProfiler, outputFileLocation);
+              },
+              args);
+
+      if (!metadataDumper.run()) {
         System.exit(1);
       }
     } catch (MetadataDumperUsageException e) {
@@ -84,6 +87,54 @@ public class Main {
       e.printStackTrace();
       printErrorMessages(e);
       System.exit(1);
+    }
+  }
+
+  /**
+   * AsyncProfiler doesn't support all the OSs, so the usage is optional.
+   *
+   * @return AsyncProfiler instance or {@code null} if OS is not supported.
+   */
+  @Nullable
+  private static AsyncProfiler tryInitAsyncProfiler() {
+    try {
+      AsyncProfiler asyncProfiler = AsyncProfiler.getInstance();
+      asyncProfiler.execute("start,event=cpu,interval=10ms");
+      return asyncProfiler;
+    } catch (Exception ignore) {
+      logger.info(
+          "Async profiler was not inited for the execution. The root cause: "
+              + ignore.getMessage());
+    }
+    return null;
+  }
+
+  private static void moveFileToZip(String zipFile, File file, String entryName)
+      throws IOException {
+    Map<String, String> env = Collections.singletonMap("create", "false");
+    URI zipUri = URI.create("jar:" + Paths.get(zipFile).toUri());
+
+    try (FileSystem zipFs = FileSystems.newFileSystem(zipUri, env)) {
+      Path pathInZip = zipFs.getPath(entryName);
+
+      Files.copy(file.toPath(), pathInZip, StandardCopyOption.REPLACE_EXISTING);
+      Files.deleteIfExists(file.toPath());
+    }
+  }
+
+  private static void stopProfileAndAppendToZip(
+      @Nullable AsyncProfiler asyncProfiler, String outputFileLocation) {
+    if (asyncProfiler == null) {
+      return;
+    }
+
+    try {
+      File tempFlameGraph = File.createTempFile("flamegraph", ".html");
+      String stopCommand = "stop,output=flamegraph,file=" + tempFlameGraph.getAbsolutePath();
+      asyncProfiler.execute(stopCommand);
+
+      moveFileToZip(outputFileLocation, tempFlameGraph, "flamegraph.html");
+    } catch (Exception ignored) {
     }
   }
 }

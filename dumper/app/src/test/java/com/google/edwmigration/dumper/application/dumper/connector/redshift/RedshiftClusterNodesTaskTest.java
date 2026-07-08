@@ -20,12 +20,14 @@ import static org.junit.Assert.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
-import autovalue.shaded.com.google.common.collect.ImmutableList;
 import com.amazonaws.services.redshift.AmazonRedshift;
 import com.amazonaws.services.redshift.model.Cluster;
 import com.amazonaws.services.redshift.model.DescribeClustersResult;
 import com.amazonaws.services.redshift.model.Endpoint;
-import com.google.edwmigration.dumper.application.dumper.task.AbstractTaskTest;
+import com.google.common.collect.ImmutableList;
+import com.google.edwmigration.dumper.application.dumper.handle.RedshiftHandle;
+import com.google.edwmigration.dumper.application.dumper.task.MemoryByteSink;
+import java.util.Optional;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -35,14 +37,17 @@ import org.mockito.junit.MockitoJUnit;
 import org.mockito.junit.MockitoRule;
 
 @RunWith(JUnit4.class)
-public class RedshiftClusterNodesTaskTest extends AbstractTaskTest {
+public class RedshiftClusterNodesTaskTest {
 
   @Rule public MockitoRule mockitoRule = MockitoJUnit.rule();
 
   @Mock private AmazonRedshift redshiftClientMock;
+  @Mock private RedshiftHandle redshiftHandle;
 
   @Test
   public void doRun_success() throws Exception {
+    when(redshiftHandle.getRedshiftClient()).thenReturn(Optional.of(redshiftClientMock));
+
     when(redshiftClientMock.describeClusters(any()))
         .thenReturn(
             new DescribeClustersResult()
@@ -63,10 +68,8 @@ public class RedshiftClusterNodesTaskTest extends AbstractTaskTest {
 
     MemoryByteSink sink = new MemoryByteSink();
 
-    RedshiftClusterNodesTask task = new RedshiftClusterNodesTask(null);
-    task.withRedshiftApiClient(redshiftClientMock);
-
-    task.doRun(null, sink, null);
+    RedshiftClusterNodesTask task = new RedshiftClusterNodesTask();
+    task.doRun(null, sink, redshiftHandle);
 
     String actualOutput = sink.openStream().toString();
     assertEquals(

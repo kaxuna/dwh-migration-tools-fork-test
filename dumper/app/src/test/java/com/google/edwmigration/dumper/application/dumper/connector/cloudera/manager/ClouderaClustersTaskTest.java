@@ -21,6 +21,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
+import static com.google.edwmigration.dumper.application.dumper.connector.cloudera.manager.TestUtils.readFileAsString;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
@@ -38,15 +39,11 @@ import com.google.common.io.ByteSink;
 import com.google.common.io.CharSink;
 import com.google.edwmigration.dumper.application.dumper.ConnectorArguments;
 import com.google.edwmigration.dumper.application.dumper.connector.cloudera.manager.ClouderaManagerHandle.ClouderaClusterDTO;
-import com.google.edwmigration.dumper.application.dumper.connector.cloudera.manager.dto.ApiClusterListDTO;
+import com.google.edwmigration.dumper.application.dumper.connector.cloudera.manager.dto.ApiClusterListDto;
 import com.google.edwmigration.dumper.application.dumper.task.TaskRunContext;
-import java.io.IOException;
 import java.io.Writer;
 import java.net.URI;
-import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Paths;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 import org.junit.AfterClass;
@@ -92,36 +89,37 @@ public class ClouderaClustersTaskTest {
   @Before
   public void setUp() throws Exception {
     server.resetAll(); // reset request/response stubs
-    handle = new ClouderaManagerHandle(URI.create("http://localhost/api"), httpClient);
+    handle = new ClouderaManagerHandle(URI.create("http://localhost/api"), httpClient, httpClient);
 
     when(sink.asCharSink(eq(StandardCharsets.UTF_8))).thenReturn(charSink);
     when(charSink.openBufferedStream()).thenReturn(writer);
     when(context.getArguments()).thenReturn(arguments);
 
-    apiClusterListJson = readString("/cloudera/manager/dto/ApiClusterList.json");
-    apiClusterJson = readString("/cloudera/manager/dto/ApiCluster.json");
-    clusterStatusJson = readString("/cloudera/manager/cluster-status.json");
+    apiClusterListJson = readFileAsString("/cloudera/manager/dto/ApiClusterList.json");
+    apiClusterJson = readFileAsString("/cloudera/manager/dto/ApiCluster.json");
+    clusterStatusJson = readFileAsString("/cloudera/manager/cluster-status.json");
   }
 
   @Test
   public void doRun_clusterNotProvided_fetchAllClusters() throws Exception {
     when(arguments.getCluster()).thenReturn(null);
     URI apiUrl = URI.create(server.baseUrl() + "/api/vTest/");
-    handle = new ClouderaManagerHandle(apiUrl, HttpClients.createDefault());
+    handle =
+        new ClouderaManagerHandle(apiUrl, HttpClients.createDefault(), HttpClients.createDefault());
 
     server.stubFor(
         get("/api/vTest/clusters?clusterType=ANY").willReturn(okJson(apiClusterListJson)));
     server.stubFor(
         get("/cmf/clusters/aaa/status.json").willReturn(okJson(clusterStatusJsonWithId("111"))));
     server.stubFor(
-        get("/cmf/clusters/bbb/status.json")
+        get("/cmf/clusters/B%20b%20-%20b/status.json")
             .willReturn(aResponse().withStatus(401).withBody(clusterStatusJsonWithId("222"))));
 
     task.doRun(context, sink, handle);
 
     server.verify(getRequestedFor(urlEqualTo("/api/vTest/clusters?clusterType=ANY")));
     server.verify(getRequestedFor(urlEqualTo("/cmf/clusters/aaa/status.json")));
-    server.verify(getRequestedFor(urlEqualTo("/cmf/clusters/bbb/status.json")));
+    server.verify(getRequestedFor(urlEqualTo("/cmf/clusters/B%20b%20-%20b/status.json")));
     assertTrue(server.findAllUnmatchedRequests().isEmpty());
 
     verify(writer)
@@ -130,8 +128,8 @@ public class ClouderaClustersTaskTest {
                 argThat(
                     content -> {
                       try {
-                        ApiClusterListDTO listDto =
-                            objectMapper.readValue((String) content, ApiClusterListDTO.class);
+                        ApiClusterListDto listDto =
+                            objectMapper.readValue((String) content, ApiClusterListDto.class);
                         assertNotNull(listDto.getClusters());
                       } catch (JsonProcessingException e) {
                         throw new RuntimeException(e);
@@ -143,7 +141,7 @@ public class ClouderaClustersTaskTest {
     assertNotNull(clusters);
     assertEquals(
         ImmutableList.of(
-            ClouderaClusterDTO.create("111", "aaa"), ClouderaClusterDTO.create(null, "bbb")),
+            ClouderaClusterDTO.create("111", "aaa"), ClouderaClusterDTO.create(null, "B b - b")),
         clusters);
     verify(writer).close();
   }
@@ -152,7 +150,8 @@ public class ClouderaClustersTaskTest {
   public void doRun_clusterProvided_fetchOnlyProvidedCluster() throws Exception {
     when(arguments.getCluster()).thenReturn("my-cluster");
     URI apiUrl = URI.create(server.baseUrl() + "/api/vTest/");
-    handle = new ClouderaManagerHandle(apiUrl, HttpClients.createDefault());
+    handle =
+        new ClouderaManagerHandle(apiUrl, HttpClients.createDefault(), HttpClients.createDefault());
 
     server.stubFor(get("/api/vTest/clusters/my-cluster").willReturn(okJson(apiClusterJson)));
     server.stubFor(
@@ -171,8 +170,8 @@ public class ClouderaClustersTaskTest {
                 argThat(
                     content -> {
                       try {
-                        ApiClusterListDTO listDto =
-                            objectMapper.readValue((String) content, ApiClusterListDTO.class);
+                        ApiClusterListDto listDto =
+                            objectMapper.readValue((String) content, ApiClusterListDto.class);
                         assertNotNull(listDto.getClusters());
                       } catch (JsonProcessingException e) {
                         throw new RuntimeException(e);
@@ -189,9 +188,5 @@ public class ClouderaClustersTaskTest {
 
   private String clusterStatusJsonWithId(String clusterId) {
     return clusterStatusJson.replaceAll("" + clusterStatusId, clusterId);
-  }
-
-  private String readString(String name) throws IOException, URISyntaxException {
-    return new String(Files.readAllBytes(Paths.get(this.getClass().getResource(name).toURI())));
   }
 }

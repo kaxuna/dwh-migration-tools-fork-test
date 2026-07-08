@@ -18,7 +18,6 @@ package com.google.edwmigration.dumper.application.dumper;
 
 import static com.google.common.base.MoreObjects.firstNonNull;
 import static com.google.common.collect.ImmutableList.toImmutableList;
-import static com.google.edwmigration.dumper.application.dumper.utils.OptionalUtils.optionallyWhen;
 import static java.time.temporal.ChronoUnit.DAYS;
 import static java.time.temporal.ChronoUnit.HOURS;
 import static java.util.Arrays.stream;
@@ -27,11 +26,8 @@ import static java.util.stream.Collectors.joining;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.base.Predicates;
-import com.google.common.base.Strings;
-import com.google.common.collect.ComparisonChain;
 import com.google.common.collect.ImmutableList;
 import com.google.edwmigration.dumper.application.dumper.ZonedParser.DayOffset;
-import com.google.edwmigration.dumper.application.dumper.annotations.RespectsInput;
 import com.google.edwmigration.dumper.application.dumper.connector.Connector;
 import com.google.edwmigration.dumper.application.dumper.connector.ConnectorProperty;
 import com.google.edwmigration.dumper.application.dumper.connector.ConnectorPropertyWithDefault;
@@ -43,27 +39,21 @@ import java.time.Duration;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import javax.annotation.CheckForNull;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import joptsimple.OptionSet;
 import joptsimple.OptionSpec;
 import org.apache.commons.lang3.BooleanUtils;
 import org.apache.commons.lang3.StringUtils;
-import org.springframework.core.annotation.AnnotationUtils;
 
 /** @author shevek */
 public class ConnectorArguments extends DefaultArguments {
@@ -82,6 +72,8 @@ public class ConnectorArguments extends DefaultArguments {
           + "\n";
 
   public static final String OPT_CONNECTOR = "connector";
+  public static final String OPT_KEEP_FAILED_LOGS = "keep-failed-logs";
+  public static final String OPT_TELEMETRY = "telemetry";
   public static final String OPT_DRIVER = "driver";
   public static final String OPT_CLASS = "jdbcDriverClass";
   public static final String OPT_URI = "url";
@@ -122,6 +114,7 @@ public class ConnectorArguments extends DefaultArguments {
 
   // Cloudera
   public static final String OPT_YARN_APPLICATION_TYPES = "yarn-application-types";
+  public static final String OPT_SPARK_HISTORY_SERVICE_NAMES = "spark-history-service-names";
   public static final String OPT_PAGINATION_PAGE_SIZE = "pagination-page-size";
 
   // redshift.
@@ -174,6 +167,9 @@ public class ConnectorArguments extends DefaultArguments {
 
   private final OptionSpec<String> connectorNameOption =
       parser.accepts(OPT_CONNECTOR, "Target connector name").withRequiredArg().required();
+  private final OptionSpec<Void> optionKeepFailedLogs =
+      parser.accepts(OPT_KEEP_FAILED_LOGS, "Keep failed query logs.");
+
   private final OptionSpec<String> optionDriver =
       parser
           .accepts(
@@ -310,7 +306,14 @@ public class ConnectorArguments extends DefaultArguments {
   private final OptionSpec<Void> optionOutputContinue =
       parser.accepts("continue", "Continues writing a previous output file.");
 
-  // TODO: Make this be an ISO instant.
+  /**
+   * (Deprecated) earliest timestamp of logs to extract.
+   *
+   * <p>If the user specifies an earliest start time there will be extraneous empty dump files
+   * because we always iterate over the full 7 trailing days; maybe it's worth preventing that in
+   * the future. To do that, we should require getQueryLogEarliestTimestamp() to parse and return an
+   * ISO instant, not a database-server-specific format.
+   */
   @Deprecated
   private final OptionSpec<String> optionQueryLogEarliestTimestamp =
       parser
@@ -471,6 +474,13 @@ public class ConnectorArguments extends DefaultArguments {
           .ofType(Integer.class)
           .defaultsTo(OPT_THREAD_POOL_SIZE_DEFAULT);
 
+  private final OptionSpec<Boolean> optionTelemetry =
+      parser
+          .accepts(OPT_TELEMETRY, "Allows dumper telemetry to be turned on/off")
+          .withOptionalArg()
+          .ofType(Boolean.class)
+          .defaultsTo(true);
+
   public final OptionSpec<String> optionHadoopHdfsSiteXml =
       parser
           .accepts(
@@ -557,6 +567,17 @@ public class ConnectorArguments extends DefaultArguments {
           .withOptionalArg()
           .ofType(String.class)
           .defaultsTo("");
+  private final OptionSpec<String> optionSparkHistoryServiceNames =
+      parser
+          .accepts(
+              OPT_SPARK_HISTORY_SERVICE_NAMES,
+              "Custom list of service names for Spark History Server, used to query "
+                  + "Spark event logs through Apache Knox for application metadata extraction. "
+                  + "Has to be comma separated. For example: spark3history,sparkhistory")
+          .withOptionalArg()
+          .ofType(String.class)
+          .withValuesSeparatedBy(',')
+          .describedAs("name1,name2,...");
   private final OptionSpec<Integer> optionPaginationPageSize =
       parser
           .accepts(OPT_PAGINATION_PAGE_SIZE, "Set page size for API requests.")
@@ -592,106 +613,31 @@ public class ConnectorArguments extends DefaultArguments {
 
   private ConnectorProperties connectorProperties;
 
-  private final PasswordReader passwordReader = new PasswordReader();
+  private final PasswordReader passwordReader;
 
   public ConnectorArguments(@Nonnull String... args) throws IOException {
+    this(Arrays.asList(args), new PasswordReader());
+  }
+
+  private ConnectorArguments(@Nonnull List<String> args, @Nonnull PasswordReader passwordReader) {
     super(args);
+    this.passwordReader = passwordReader;
   }
 
-  private static class InputDescriptor implements Comparable<InputDescriptor> {
-
-    public enum Category {
-      Arg,
-      Env,
-      Other
-    }
-
-    private final RespectsInput annotation;
-
-    public InputDescriptor(RespectsInput annotation) {
-      this.annotation = annotation;
-    }
-
-    @Nonnull
-    public Category getCategory() {
-      if (!Strings.isNullOrEmpty(annotation.arg())) {
-        return Category.Arg;
-      }
-      if (!Strings.isNullOrEmpty(annotation.env())) {
-        return Category.Env;
-      }
-      return Category.Other;
-    }
-
-    @Nonnull
-    public String getKey() {
-      switch (getCategory()) {
-        case Arg:
-          return "--" + annotation.arg();
-        case Env:
-          return annotation.env();
-        default:
-          return String.valueOf(annotation.hashCode());
-      }
-    }
-
-    @Override
-    public int compareTo(InputDescriptor o) {
-      return ComparisonChain.start()
-          .compare(getCategory(), o.getCategory())
-          .compare(annotation.order(), o.annotation.order())
-          .result();
-    }
-
-    @Override
-    public String toString() {
-      StringBuilder buf = new StringBuilder();
-      String key = getKey();
-      buf.append(key).append(StringUtils.repeat(' ', 12 - key.length()));
-      if (getCategory() == Category.Env) {
-        buf.append(" (environment variable)");
-      }
-      String defaultValue = annotation.defaultValue();
-      if (!Strings.isNullOrEmpty(defaultValue)) {
-        buf.append(" (default: ").append(defaultValue).append(")");
-      }
-      buf.append(" ").append(annotation.description());
-      String required = annotation.required();
-      if (!Strings.isNullOrEmpty(required)) {
-        buf.append(" (Required ").append(required).append(".)");
-      }
-      return buf.toString();
-    }
-  }
-
-  @Nonnull
-  private static Collection<InputDescriptor> getAcceptsInputs(@Nonnull Connector connector) {
-    Map<String, InputDescriptor> tmp = new HashMap<>();
-    Class<?> connectorType = connector.getClass();
-    while (connectorType != null) {
-      Set<RespectsInput> respectsInputs =
-          AnnotationUtils.getDeclaredRepeatableAnnotations(connectorType, RespectsInput.class);
-      for (RespectsInput respectsInput : respectsInputs) {
-        InputDescriptor descriptor = new InputDescriptor(respectsInput);
-        tmp.putIfAbsent(descriptor.getKey(), descriptor);
-      }
-      connectorType = connectorType.getSuperclass();
-    }
-
-    List<InputDescriptor> out = new ArrayList<>(tmp.values());
-    Collections.sort(out);
-    return out;
+  public static ConnectorArguments create(@Nonnull List<String> args) {
+    return new ConnectorArguments(args, new PasswordReader());
   }
 
   @Override
-  protected void printHelpOn(PrintStream out, OptionSet o) throws IOException {
+  protected void printHelpOn(@Nonnull PrintStream out, OptionSet o) throws IOException {
     out.append(HELP_INFO);
     super.printHelpOn(out, o);
 
+    ConnectorRepository repository = ConnectorRepository.getInstance();
     // if --connector <valid-connection> provided, print only that
     if (o.has(connectorNameOption)) {
       String helpOnConnector = o.valueOf(connectorNameOption);
-      Connector connector = ConnectorRepository.getInstance().getByName(helpOnConnector);
+      Connector connector = repository.getByName(helpOnConnector);
       if (connector != null) {
         out.append("\nSelected connector:\n");
         printConnectorHelp(out, connector);
@@ -699,22 +645,14 @@ public class ConnectorArguments extends DefaultArguments {
       }
     }
     out.append("\nAvailable connectors:\n");
-    for (Connector connector : ConnectorRepository.getInstance().getAllConnectors()) {
+    for (Connector connector : repository.getAllConnectors()) {
       printConnectorHelp(out, connector);
     }
   }
 
-  private void printConnectorHelp(@Nonnull Appendable out, @Nonnull Connector connector)
+  private static void printConnectorHelp(@Nonnull Appendable out, @Nonnull Connector connector)
       throws IOException {
-    out.append("* " + connector.getName());
-    String description = connector.getDescription();
-    if (!description.isEmpty()) {
-      out.append(" - " + description);
-    }
-    out.append("\n");
-    for (InputDescriptor descriptor : getAcceptsInputs(connector)) {
-      out.append(String.format("%8s%s\n", "", descriptor));
-    }
+    connector.printHelp(out);
     ConnectorProperties.printHelp(out, connector);
   }
 
@@ -791,6 +729,10 @@ public class ConnectorArguments extends DefaultArguments {
     return getOptions().valueOf(optionOracleSID);
   }
 
+  public boolean shouldKeepFailedLogs() {
+    return getOptions().has(OPT_KEEP_FAILED_LOGS);
+  }
+
   @Nonnull
   private static Predicate<String> toPredicate(@CheckForNull List<String> in) {
     if (in == null || in.isEmpty()) {
@@ -821,12 +763,11 @@ public class ConnectorArguments extends DefaultArguments {
     return toPredicate(getDatabases());
   }
 
-  /** Returns the name of the single database specified, if exactly one database was specified. */
-  // This can be used to generate an output filename, but it makes 1 be a special
-  // case
-  // that I find a little uncomfortable from the Unix philosophy:
-  // "Sometimes the output filename is different" is hard to automate around.
-  @CheckForNull
+  /**
+   * Returns the name of the single database specified, if exactly one database was specified or
+   * {@code null} otherwise.
+   */
+  @Nullable
   public String getDatabaseSingleName() {
     List<String> databases = getDatabases();
     if (databases.size() == 1) {
@@ -843,10 +784,6 @@ public class ConnectorArguments extends DefaultArguments {
 
   public boolean isAssessment() {
     return getOptions().has(optionAssessment);
-  }
-
-  private <T> Optional<T> optionAsOptional(OptionSpec<T> spec) {
-    return optionallyWhen(getOptions().has(spec), () -> getOptions().valueOf(spec));
   }
 
   @Nonnull
@@ -879,7 +816,11 @@ public class ConnectorArguments extends DefaultArguments {
    */
   @Nonnull
   public Optional<String> getPasswordIfFlagProvided() {
-    return optionallyWhen(getOptions().has(optionPass), this::getPasswordOrPrompt);
+    if (getOptions().has(optionPass)) {
+      return Optional.of(getPasswordOrPrompt());
+    } else {
+      return Optional.empty();
+    }
   }
 
   @Nonnull
@@ -926,7 +867,15 @@ public class ConnectorArguments extends DefaultArguments {
   }
 
   public Optional<String> getOutputFile() {
-    return optionAsOptional(optionOutput).filter(file -> !Strings.isNullOrEmpty(file));
+    if (!getOptions().has(optionOutput)) {
+      return Optional.empty();
+    }
+    String file = getOptions().valueOf(optionOutput);
+    if (file == null || file.isEmpty()) {
+      return Optional.empty();
+    } else {
+      return Optional.of(file);
+    }
   }
 
   public boolean isOutputContinue() {
@@ -941,6 +890,10 @@ public class ConnectorArguments extends DefaultArguments {
   @Deprecated
   public String getQueryLogEarliestTimestamp() {
     return getOptions().valueOf(optionQueryLogEarliestTimestamp);
+  }
+
+  public boolean hasQueryLogEarliestTimestamp() {
+    return getOptions().valueOf(optionQueryLogEarliestTimestamp) != null;
   }
 
   @CheckForNull
@@ -1046,6 +999,10 @@ public class ConnectorArguments extends DefaultArguments {
   @Nonnull
   public List<String> getQueryLogAlternates() {
     return getOptions().valuesOf(optionQueryLogAlternates);
+  }
+
+  public boolean isTelemetryOn() {
+    return getOptions().valueOf(optionTelemetry);
   }
 
   public boolean isTestFlag(char c) {
@@ -1180,6 +1137,10 @@ public class ConnectorArguments extends DefaultArguments {
             .collect(Collectors.toList()));
   }
 
+  public List<String> getSparkHistoryServiceNames() {
+    return ImmutableList.copyOf(getOptions().valuesOf(optionSparkHistoryServiceNames));
+  }
+
   /** Checks if the property was specified on the command-line. */
   public boolean isDefinitionSpecified(@Nonnull ConnectorProperty property) {
     return getConnectorProperties().isSpecified(property);
@@ -1214,7 +1175,9 @@ public class ConnectorArguments extends DefaultArguments {
             .add(OPT_QUERY_LOG_START, getQueryLogStart())
             .add(OPT_QUERY_LOG_END, getQueryLogEnd())
             .add(OPT_QUERY_LOG_ALTERNATES, getQueryLogAlternates())
-            .add(OPT_ASSESSMENT, isAssessment());
+            .add(OPT_SPARK_HISTORY_SERVICE_NAMES, getSparkHistoryServiceNames())
+            .add(OPT_ASSESSMENT, isAssessment())
+            .add(OPT_TELEMETRY, isTelemetryOn());
     getConnectorProperties().getDefinitionMap().forEach(toStringHelper::add);
     return toStringHelper.toString();
   }

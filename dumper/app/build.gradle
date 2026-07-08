@@ -25,6 +25,7 @@ buildscript {
 plugins {
     id 'dwh-migration-dumper.java-application-conventions'
     id 'jacoco'
+    id 'org.cyclonedx.bom' version '1.10.0'
 }
 
 apply plugin: 'com.github.jk1.dependency-license-report'
@@ -67,7 +68,18 @@ dependencies {
         // *-over-slf4j bridges used
         exclude group: "ch.qos.reload4j", module: "reload4j"
         exclude group: "org.slf4j", module: "slf4j-reload4j"
+        exclude group: "org.bouncycastle", module: "bcprov-jdk15on" // We use 18, which is the latest and support JDK 1.8+
+        exclude group: "javax.servlet.jsp", module: "jsp-api"
     }
+    //Overrides for hadoop-common transient deps
+    implementation libs.jetty.server // explicit version for vulnerabilities update
+    implementation libs.netty.handler // explicit version for vulnerabilities update
+    implementation libs.dnsjava // explicit version for vulnerabilities update
+    implementation libs.nimbus.jose.jwt // explicit version for vulnerabilities update
+    implementation libs.zookeeper // explicit version for vulnerabilities update
+    implementation libs.common.configuration2 // explicit version for vulnerabilities update
+    implementation libs.bouncycastle // explicit version for vulnerabilities update
+
     implementation libs.hadoop.hdfs.client
     implementation(libs.harawata.appdirs) {
         exclude group: "net.java.dev.jna", module: "jna"
@@ -80,10 +92,23 @@ dependencies {
     implementation libs.jackson.dataformat.yaml
     implementation libs.jackson.datatype.guava
     implementation libs.google.cloud.bigquery
+
+    //Overrides for google-cloud-bigquery transient deps
+    implementation libs.grpc.netty.shaded // explicit version for vulnerabilities update
+    implementation libs.grpc.protobuf // explicit version for vulnerabilities update
+    implementation libs.grpc.stub // explicit version for vulnerabilities update
+    implementation libs.grpc.auth // explicit version for vulnerabilities update
+    implementation libs.grpc.opentelemetry // explicit version for vulnerabilities update
+    implementation libs.grpc.services // explicit version for vulnerabilities update
+    implementation libs.grpc.rls // explicit version for vulnerabilities update
+    implementation libs.grpc.xds // explicit version for vulnerabilities update
+    implementation libs.grpc.bom // explicit version for vulnerabilities update
+
     implementation libs.google.cloud.nio
     implementation libs.google.cloud.kms
     implementation libs.httpclient5
     implementation libs.aws.java.sdk.redshift
+    implementation libs.aws.java.sdk.redshiftserverless
     implementation libs.aws.java.sdk.cloudwatch
     implementation(libs.oozie.client) {
         exclude group: 'javax.jms', module: 'jms'
@@ -93,12 +118,18 @@ dependencies {
         //Not used and has LGPLv3 transient deps
         exclude group: 'org.apache.oozie', module: 'oozie-fluent-job-api'
     }
+
+    //Overrides for oozie-client transient deps
+    implementation libs.xerces // explicit version for vulnerabilities update
+
     implementation libs.hadoop.auth
 
     // `implementation` scope is used because some of our dependencies
     // have log libraries in this scope as transient dependencies
     implementation libs.logback.classic
     implementation libs.jcl.over.slf4j
+
+    implementation libs.async.profiler
 
     runtimeOnly libs.postgresql
     runtimeOnly libs.snowflake.jdbc
@@ -126,8 +157,8 @@ dependencies {
     testRuntimeOnly libs.datanucleus.javax.jdo
     testRuntimeOnly libs.datanucleus.rdbms
 
-    sources "org.slf4j:jcl-over-slf4j:${libs.versions.jcl.over.slf4j.get()}@sources"
-    sources "ch.qos.logback:logback-classic:${libs.versions.logback.get()}@sources"
+    sources "org.slf4j:jcl-over-slf4j:${libs.versions.jcl.over.slf4j.get()}:sources"
+    sources "ch.qos.logback:logback-classic:${libs.versions.logback.get()}:sources"
 }
 
 dependencyLocking {
@@ -145,9 +176,8 @@ test {
 jacocoTestReport {
     dependsOn test
     reports {
-        xml.required = false
+        xml.required = true
         csv.required = false
-        html.outputLocation = layout.buildDirectory.dir('reports/jacocoHtml')
     }
     afterEvaluate {
         classDirectories.setFrom(files(classDirectories.files.collect {
@@ -191,14 +221,24 @@ task cloudExtractorStartScripts(type: CreateStartScripts) {
 licenseReport {
     // onlyIf { ! gradle.startParameter.offline }
     filters = [
-        new com.github.jk1.license.filter.LicenseBundleNormalizer(bundlePath: rootProject.file("gradle/license-bundle-normalizer.json"), createDefaultTransformationRules: true)
+        new com.github.jk1.license.filter.LicenseBundleNormalizer(bundlePath: rootProject.file("gradle/licenses/license-bundle-normalizer.json"), createDefaultTransformationRules: true)
     ]
     renderers = [
         new com.google.edwmigration.dumper.build.licensereport.CsvReportRenderer(),
         new com.github.jk1.license.render.JsonReportRenderer('index.json', false),
         new com.github.jk1.license.render.InventoryHtmlReportRenderer("index.html", "Licenses of Third Party Dependencies")
     ]
-    allowedLicensesFile = rootProject.file("gradle/license-allowed.json")
+    allowedLicensesFile = rootProject.file("gradle/licenses/license-allowed.json")
+}
+
+cyclonedxBom {
+    includeConfigs = ["runtimeClasspath"]
+    skipConfigs = ["compileClasspath", "testCompileClasspath"]
+    projectType = "application"
+    schemaVersion = "1.5"
+    destination = file("build/reports/bom")
+    outputFormat = "json"
+    outputName = "bom"
 }
 
 tasks.named('check') {
@@ -219,7 +259,9 @@ tasks.register('generateSourceMirror', Copy) {
         dependencies.createArtifactResolutionQuery()
                 .forComponents(
                         configurations.runtimeClasspath.incoming.resolutionResult
-                                .allDependencies.collect { it.selected.id }
+                                .allDependencies
+                                .findAll { it instanceof ResolvedDependencyResult }
+                                .collect { it.selected.id }
                 )
                 .withArtifacts(JvmLibrary, SourcesArtifact)
                 .execute()
@@ -271,6 +313,9 @@ distributions {
             }
             from(generateSourceMirror) {
                 into "docs/sources"
+            }
+            from(cyclonedxBom) {
+                into "docs/bom"
             }
         }
     }

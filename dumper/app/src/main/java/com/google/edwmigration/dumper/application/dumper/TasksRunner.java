@@ -16,11 +16,7 @@
  */
 package com.google.edwmigration.dumper.application.dumper;
 
-import static com.google.edwmigration.dumper.application.dumper.DurationFormatter.formatApproximateDuration;
-import static java.lang.Math.max;
-
 import com.google.common.base.Preconditions;
-import com.google.common.base.Stopwatch;
 import com.google.edwmigration.dumper.application.dumper.handle.Handle;
 import com.google.edwmigration.dumper.application.dumper.io.OutputHandle;
 import com.google.edwmigration.dumper.application.dumper.io.OutputHandle.WriteMode;
@@ -29,15 +25,13 @@ import com.google.edwmigration.dumper.application.dumper.task.Task;
 import com.google.edwmigration.dumper.application.dumper.task.TaskGroup;
 import com.google.edwmigration.dumper.application.dumper.task.TaskRunContext;
 import com.google.edwmigration.dumper.application.dumper.task.TaskRunContextOps;
-import com.google.edwmigration.dumper.application.dumper.task.TaskSetState;
+import com.google.edwmigration.dumper.application.dumper.task.TaskSetStateCollector;
 import com.google.edwmigration.dumper.application.dumper.task.TaskState;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.sql.SQLException;
-import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
 import javax.annotation.CheckForNull;
 import javax.annotation.Nonnull;
 import org.slf4j.Logger;
@@ -49,27 +43,22 @@ public class TasksRunner implements TaskRunContextOps {
   private static final Logger logger = LoggerFactory.getLogger(TasksRunner.class);
   public static final Logger PROGRESS_LOG = LoggerFactory.getLogger("progress-logger");
 
-  private AtomicInteger numberOfCompletedTasks;
-  private final int totalNumberOfTasks;
-  private final Stopwatch stopwatch;
-
   private final TaskRunContext context;
-  private final TaskSetState.Impl state;
+  private final TaskSetStateCollector state;
   private final List<Task<?>> tasks;
+
+  private final TaskLoggingUtil taskLoggingUtil;
 
   public TasksRunner(
       OutputHandleFactory sinkFactory,
       Handle handle,
-      int threadPoolSize,
-      @Nonnull TaskSetState.Impl state,
+      @Nonnull TaskSetStateCollector state,
       List<Task<?>> tasks,
       ConnectorArguments arguments) {
-    context = createContext(sinkFactory, handle, threadPoolSize, arguments);
+    context = createContext(sinkFactory, handle, arguments.getThreadPoolSize(), arguments);
     this.state = state;
     this.tasks = tasks;
-    totalNumberOfTasks = countTasks(tasks);
-    stopwatch = Stopwatch.createStarted();
-    numberOfCompletedTasks = new AtomicInteger();
+    this.taskLoggingUtil = new TaskLoggingUtil(countTasks(tasks));
   }
 
   private TaskRunContext createContext(
@@ -101,28 +90,14 @@ public class TasksRunner implements TaskRunContextOps {
   private <T> T handleTask(Task<T> task) throws MetadataDumperUsageException {
     T t = runTask(task);
     if (!(task instanceof TaskGroup)) {
-      numberOfCompletedTasks.getAndIncrement();
+      taskLoggingUtil.recordTaskCompletion();
     }
     logProgress();
     return t;
   }
 
   private void logProgress() {
-    int numberOfCompletedTasks = this.numberOfCompletedTasks.get();
-
-    Duration averageTimePerTask = stopwatch.elapsed().dividedBy(max(1, numberOfCompletedTasks));
-
-    int percentFinished = numberOfCompletedTasks * 100 / totalNumberOfTasks;
-    String progressMessage = percentFinished + "% Completed";
-
-    int remainingTasks = totalNumberOfTasks - numberOfCompletedTasks;
-    Duration remainingTime = averageTimePerTask.multipliedBy(remainingTasks);
-
-    if (numberOfCompletedTasks > 10 && remainingTasks > 0) {
-      progressMessage += ". ETA: " + formatApproximateDuration(remainingTime);
-    }
-
-    PROGRESS_LOG.info(progressMessage);
+    PROGRESS_LOG.info(taskLoggingUtil.getProgressLog());
   }
 
   private static final String ACCESS_CONTROL_EXCEPTION_MSG_SUFFIX =

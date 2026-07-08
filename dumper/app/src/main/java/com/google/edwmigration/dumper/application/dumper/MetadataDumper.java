@@ -34,6 +34,8 @@ import com.google.edwmigration.dumper.application.dumper.task.Task;
 import com.google.edwmigration.dumper.application.dumper.task.TaskGroup;
 import com.google.edwmigration.dumper.application.dumper.task.TaskSetState;
 import com.google.edwmigration.dumper.application.dumper.task.TaskSetState.TaskResultSummary;
+import com.google.edwmigration.dumper.application.dumper.task.TaskSetStateCollector;
+import com.google.edwmigration.dumper.application.dumper.task.TaskSetStateImpl;
 import com.google.edwmigration.dumper.application.dumper.task.VersionTask;
 import java.io.File;
 import java.io.IOException;
@@ -62,28 +64,27 @@ public class MetadataDumper {
       Pattern.compile("gs://(?<bucket>[^/]+)/(?<path>.*)");
 
   private final TelemetryProcessor telemetryProcessor;
+  private final ConnectorArguments connectorArguments;
+  private final ShutdownHook shutdownHook;
 
-  public MetadataDumper(TelemetryProcessor telemetryProcessor) {
-    this.telemetryProcessor = telemetryProcessor;
+  public MetadataDumper(String... args) throws Exception {
+    this((zipPath) -> {}, args);
   }
 
-  public boolean run(String... args) throws Exception {
-    ConnectorArguments arguments = new ConnectorArguments(JsonResponseFile.addResponseFiles(args));
-    try {
-      return run(arguments);
-    } finally {
-      if (arguments.saveResponseFile()) {
-        JsonResponseFile.save(arguments);
-      }
+  public MetadataDumper(ShutdownHook shutdownHook, String... args) throws Exception {
+    this.connectorArguments = new ConnectorArguments(JsonResponseFile.addResponseFiles(args));
+    telemetryProcessor =
+        new TelemetryProcessor(
+            TelemetryStrategyFactory.createStrategy(connectorArguments.isTelemetryOn()));
+    if (connectorArguments.saveResponseFile()) {
+      JsonResponseFile.save(connectorArguments);
     }
+
+    this.shutdownHook = shutdownHook;
   }
 
-  public boolean run(@Nonnull ConnectorArguments arguments) throws Exception {
-    String connectorName = arguments.getConnectorName();
-    if (connectorName == null) {
-      logger.error("Target connector is required");
-      return false;
-    }
+  public boolean run() throws Exception {
+    String connectorName = connectorArguments.getConnectorName();
 
     Connector connector = ConnectorRepository.getInstance().getByName(connectorName);
     if (connector == null) {
@@ -93,8 +94,91 @@ public class MetadataDumper {
           ConnectorRepository.getInstance().getAllNames());
       return false;
     }
-    connector.validate(arguments);
-    return run(connector, arguments);
+    connector.validate(connectorArguments);
+    return run(connector);
+  }
+
+  protected boolean run(@Nonnull Connector connector) throws Exception {
+    List<Task<?>> tasks = new ArrayList<>();
+    tasks.add(new VersionTask());
+    tasks.add(new ArgumentsTask(connectorArguments));
+    {
+      File sqlScript = connectorArguments.getSqlScript();
+      if (sqlScript != null) {
+        tasks.add(new JdbcRunSQLScript(sqlScript));
+      }
+    }
+    connector.addTasksTo(tasks, connectorArguments);
+
+    // The default output file is based on the connector.
+    // We had a customer request to base it on the database, but that isn't well-defined,
+    // as there may be 0 or N databases in a single file.
+    String outputFileLocation = getOutputFileLocation(connector, connectorArguments);
+
+    if (connectorArguments.isDryRun()) {
+      String title = "Dry run: Printing task list for " + connector.getName();
+      System.out.println(title);
+      System.out.println(repeat('=', title.length()));
+      System.out.println("Writing to " + outputFileLocation);
+      for (Task<?> task : tasks) {
+        print(task, 1);
+      }
+      return true;
+    }
+
+    Stopwatch stopwatch = Stopwatch.createStarted();
+    long outputFileLength = 0;
+    TaskSetStateCollector state = new TaskSetStateImpl();
+
+    logger.info("Using connector: [{}]", connector);
+    SummaryPrinter summaryPrinter = new SummaryPrinter();
+    boolean requiredTaskSucceeded = false;
+
+    try (Closer closer = Closer.create()) {
+      Path outputPath = prepareOutputPath(outputFileLocation, closer, connectorArguments);
+
+      URI outputUri = URI.create("jar:" + outputPath.toUri());
+
+      Map<String, Object> fileSystemProperties =
+          ImmutableMap.<String, Object>builder()
+              .put("create", "true")
+              .put("useTempFile", Boolean.TRUE)
+              .build();
+      FileSystem fileSystem =
+          closer.register(FileSystems.newFileSystem(outputUri, fileSystemProperties));
+      OutputHandleFactory sinkFactory =
+          new FileSystemOutputHandleFactory(fileSystem, "/"); // It's required to be "/"
+      logger.debug("Target filesystem is [{}]", sinkFactory);
+
+      Handle handle = closer.register(connector.open(connectorArguments));
+
+      new TasksRunner(sinkFactory, handle, state, tasks, connectorArguments).run();
+
+      requiredTaskSucceeded = checkRequiredTaskSuccess(summaryPrinter, state, outputFileLocation);
+
+      telemetryProcessor.addDumperRunMetricsToPayload(
+          connectorArguments, state, stopwatch, requiredTaskSucceeded);
+      telemetryProcessor.processTelemetry(fileSystem);
+    } finally {
+      shutdownHook.shutdown(outputFileLocation);
+
+      // We must do this in finally after the ZipFileSystem has been closed.
+      File outputFile = new File(outputFileLocation);
+      if (outputFile.isFile()) {
+        outputFileLength = outputFile.length();
+      }
+
+      printTaskResults(summaryPrinter, state);
+      logFinalSummary(
+          summaryPrinter,
+          state,
+          outputFileLength,
+          stopwatch,
+          outputFileLocation,
+          requiredTaskSucceeded);
+    }
+
+    return requiredTaskSucceeded;
   }
 
   private void print(@Nonnull Task<?> task, int indent) {
@@ -113,7 +197,8 @@ public class MetadataDumper {
     if (matcher.matches()) {
       String bucket = matcher.group("bucket");
       String path = matcher.group("path");
-      logger.debug("Setting up CloudStorageFileSystem with bucket '{}' and path '{}'.", bucket, path);
+      logger.debug(
+          "Setting up CloudStorageFileSystem with bucket '{}' and path '{}'.", bucket, path);
       CloudStorageFileSystem cloudStorageFileSystem =
           closer.register(CloudStorageFileSystem.forBucket(bucket));
       return cloudStorageFileSystem.getPath(path);
@@ -128,89 +213,6 @@ public class MetadataDumper {
         Files.createParentDirs(file);
       }
       return path;
-    }
-  }
-
-  protected boolean run(@Nonnull Connector connector, @Nonnull ConnectorArguments arguments)
-      throws Exception {
-    List<Task<?>> tasks = new ArrayList<>();
-    tasks.add(new VersionTask());
-    tasks.add(new ArgumentsTask(arguments));
-    {
-      File sqlScript = arguments.getSqlScript();
-      if (sqlScript != null) {
-        tasks.add(new JdbcRunSQLScript(sqlScript));
-      }
-    }
-    connector.addTasksTo(tasks, arguments);
-
-    // The default output file is based on the connector.
-    // We had a customer request to base it on the database, but that isn't well-defined,
-    // as there may be 0 or N databases in a single file.
-    String outputFileLocation = getOutputFileLocation(connector, arguments);
-
-    if (arguments.isDryRun()) {
-      String title = "Dry run: Printing task list for " + connector.getName();
-      System.out.println(title);
-      System.out.println(repeat('=', title.length()));
-      System.out.println("Writing to " + outputFileLocation);
-      for (Task<?> task : tasks) {
-        print(task, 1);
-      }
-      return true;
-    } else {
-      Stopwatch stopwatch = Stopwatch.createStarted();
-      long outputFileLength = 0;
-      TaskSetState.Impl state = new TaskSetState.Impl();
-
-      logger.info("Using connector: [{}]", connector);
-      SummaryPrinter summaryPrinter = new SummaryPrinter();
-      boolean requiredTaskSucceeded = false;
-
-      try (Closer closer = Closer.create()) {
-        Path outputPath = prepareOutputPath(outputFileLocation, closer, arguments);
-
-        URI outputUri = URI.create("jar:" + outputPath.toUri());
-
-        Map<String, Object> fileSystemProperties =
-            ImmutableMap.<String, Object>builder()
-                .put("create", "true")
-                .put("useTempFile", Boolean.TRUE)
-                .build();
-        FileSystem fileSystem =
-            closer.register(FileSystems.newFileSystem(outputUri, fileSystemProperties));
-        OutputHandleFactory sinkFactory =
-            new FileSystemOutputHandleFactory(fileSystem, "/"); // It's required to be "/"
-        logger.debug("Target filesystem is [{}]", sinkFactory);
-
-        Handle handle = closer.register(connector.open(arguments));
-
-        new TasksRunner(sinkFactory, handle, arguments.getThreadPoolSize(), state, tasks, arguments)
-            .run();
-
-        requiredTaskSucceeded = checkRequiredTaskSuccess(summaryPrinter, state, outputFileLocation);
-
-        telemetryProcessor.addDumperRunMetricsToPayload(
-            arguments, state, stopwatch, requiredTaskSucceeded);
-        telemetryProcessor.processTelemetry(fileSystem);
-      } finally {
-        // We must do this in finally after the ZipFileSystem has been closed.
-        File outputFile = new File(outputFileLocation);
-        if (outputFile.isFile()) {
-          outputFileLength = outputFile.length();
-        }
-
-        printTaskResults(summaryPrinter, state);
-        logFinalSummary(
-            summaryPrinter,
-            state,
-            outputFileLength,
-            stopwatch,
-            outputFileLocation,
-            requiredTaskSucceeded);
-      }
-
-      return requiredTaskSucceeded;
     }
   }
 
@@ -298,6 +300,14 @@ public class MetadataDumper {
             linePrinter.println(
                 "Output, including debugging information, saved to '%s'", outputFileLocation);
           }
+
+          String stateToPrint = requiredTaskSucceeded ? "SUCCEEDED" : "FAILED";
+          linePrinter.println("Dumper execution: " + stateToPrint);
         });
+  }
+
+  @FunctionalInterface
+  public interface ShutdownHook {
+    void shutdown(String outputzip);
   }
 }

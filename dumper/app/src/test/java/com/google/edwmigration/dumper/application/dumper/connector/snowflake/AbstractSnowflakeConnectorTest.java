@@ -16,7 +16,9 @@
  */
 package com.google.edwmigration.dumper.application.dumper.connector.snowflake;
 
-import static java.util.Arrays.copyOf;
+import static com.google.edwmigration.dumper.application.dumper.connector.snowflake.AbstractSnowflakeConnector.unrecognizedDatabase;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
@@ -25,13 +27,16 @@ import com.google.edwmigration.dumper.application.dumper.ConnectorArguments;
 import com.google.edwmigration.dumper.application.dumper.MetadataDumperUsageException;
 import com.google.edwmigration.dumper.application.dumper.connector.AbstractConnectorTest;
 import java.io.IOException;
-import java.util.stream.IntStream;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.Supplier;
 import org.junit.Assert;
 import org.junit.Test;
+import org.junit.experimental.theories.Theories;
+import org.junit.experimental.theories.Theory;
 import org.junit.runner.RunWith;
-import org.junit.runners.JUnit4;
 
-@RunWith(JUnit4.class)
+@RunWith(Theories.class)
 public class AbstractSnowflakeConnectorTest extends AbstractConnectorTest {
   private static final ImmutableList<String> ARGS =
       ImmutableList.of(
@@ -42,6 +47,33 @@ public class AbstractSnowflakeConnectorTest extends AbstractConnectorTest {
           "--role", "tester");
 
   private final SnowflakeMetadataConnector metadataConnector = new SnowflakeMetadataConnector();
+
+  public enum TestCase {
+    LOGS(SnowflakeLogsConnector.class),
+    LOGS_AU(SnowflakeAccountUsageLogsConnector.class),
+    LOGS_IS(SnowflakeInformationSchemaLogsConnector.class),
+    META(SnowflakeMetadataConnector.class),
+    META_AU(SnowflakeAccountUsageMetadataConnector.class),
+    META_IS(SnowflakeInformationSchemaMetadataConnector.class);
+
+    final Class<? extends AbstractSnowflakeConnector> subclass;
+
+    TestCase(Class<? extends AbstractSnowflakeConnector> subclass) {
+      this.subclass = subclass;
+    }
+  }
+
+  @Theory
+  public void describeAsDelegate_success(TestCase testCase) throws Exception {
+    AbstractSnowflakeConnector connector = testCase.subclass.newInstance();
+
+    String description = AbstractSnowflakeConnector.describeAsDelegate(connector, "test-connector");
+
+    assertTrue(description, description.contains(connector.getName()));
+    assertTrue(description, description.contains(connector.getDescription()));
+    assertTrue(description, description.contains("[same options as 'test-connector']"));
+    assertTrue(description, description.endsWith("\n"));
+  }
 
   @Test
   public void openConnection_failsForVeryLongInput() throws IOException {
@@ -58,7 +90,7 @@ public class AbstractSnowflakeConnectorTest extends AbstractConnectorTest {
   }
 
   @Test
-  public void openConnection_failsForMalformedInput() throws IOException {
+  public void open_malformedInput_fail() throws IOException {
     ConnectorArguments arguments =
         makeArguments(
             "--connector",
@@ -75,13 +107,22 @@ public class AbstractSnowflakeConnectorTest extends AbstractConnectorTest {
   }
 
   @Test
-  public void openConnection_failsForMixedPrivateKeyAndPassword() throws IOException {
+  public void open_noUser_throwsUsageException() throws Exception {
+    ConnectorArguments arguments =
+        ConnectorArguments.create(ImmutableList.of("--connector", "snowflake", "--assessment"));
+
+    assertThrows(MetadataDumperUsageException.class, () -> metadataConnector.open(arguments));
+  }
+
+  @Test
+  public void validate_mixedPrivateKeyAndPassword_fail() throws IOException {
     ConnectorArguments arguments =
         makeArguments(
             "--connector", metadataConnector.getName(), "--private-key-file", "/path/to/file.r8");
 
     MetadataDumperUsageException e =
-        assertThrows(MetadataDumperUsageException.class, () -> metadataConnector.open(arguments));
+        assertThrows(
+            MetadataDumperUsageException.class, () -> metadataConnector.validate(arguments));
 
     assertTrue(
         e.getMessage(),
@@ -91,12 +132,38 @@ public class AbstractSnowflakeConnectorTest extends AbstractConnectorTest {
   }
 
   @Test
-  public void open_assessmentEnabledWithDatabaseFilter_throwsUsageException() throws IOException {
+  public void unrecognizedDatabase_success() {
+    Supplier<List<String>> databases = () -> ImmutableList.of("SNOWFLAKE", "FIRSTDB", "SECONDDB");
+
+    String message = unrecognizedDatabase("WRONGNAMEDB", databases).getMessage();
+
+    assertNotNull(message);
+    assertTrue(message, message.contains("WRONGNAMEDB"));
+    assertTrue(message, message.contains("Database name not found"));
+    assertTrue(message, message.contains("SNOWFLAKE, FIRSTDB, SECONDDB"));
+  }
+
+  enum TestEnum {
+    SomeValue
+  }
+
+  @Test
+  public void columnOf_success() {
+
+    String columnName = AbstractSnowflakeConnector.columnOf(TestEnum.SomeValue);
+
+    assertEquals("SOME_VALUE", columnName);
+  }
+
+  @Test
+  public void validate_assessmentEnabledWithDatabaseFilter_throwsUsageException()
+      throws IOException {
     ConnectorArguments arguments =
         makeArguments("--connector", "snowflake", "--database", "SNOWFLAKE", "--assessment");
 
     MetadataDumperUsageException e =
-        assertThrows(MetadataDumperUsageException.class, () -> metadataConnector.open(arguments));
+        assertThrows(
+            MetadataDumperUsageException.class, () -> metadataConnector.validate(arguments));
 
     assertTrue(
         e.getMessage(),
@@ -115,13 +182,10 @@ public class AbstractSnowflakeConnectorTest extends AbstractConnectorTest {
   }
 
   private static ConnectorArguments makeArguments(String... extraArguments) {
-    try {
-      String[] arguments = copyOf(extraArguments, extraArguments.length + ARGS.size());
-      IntStream.range(0, ARGS.size())
-          .forEach(el -> arguments[el + extraArguments.length] = ARGS.get(el));
-      return new ConnectorArguments(arguments);
-    } catch (IOException e) {
-      throw new RuntimeException(e);
+    ArrayList<String> arguments = new ArrayList<>(ARGS);
+    for (String item : extraArguments) {
+      arguments.add(item);
     }
+    return ConnectorArguments.create(arguments);
   }
 }

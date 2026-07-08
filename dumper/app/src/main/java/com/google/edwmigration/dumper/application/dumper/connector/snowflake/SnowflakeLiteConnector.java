@@ -16,24 +16,20 @@
  */
 package com.google.edwmigration.dumper.application.dumper.connector.snowflake;
 
-import com.google.auto.service.AutoService;
 import com.google.edwmigration.dumper.application.dumper.ConnectorArguments;
-import com.google.edwmigration.dumper.application.dumper.MetadataDumperUsageException;
-import com.google.edwmigration.dumper.application.dumper.connector.Connector;
-import com.google.edwmigration.dumper.application.dumper.handle.Handle;
+import com.google.edwmigration.dumper.application.dumper.annotations.RespectsArgumentAssessment;
 import com.google.edwmigration.dumper.application.dumper.task.DumpMetadataTask;
 import com.google.edwmigration.dumper.application.dumper.task.FormatTask;
 import com.google.edwmigration.dumper.application.dumper.task.Task;
 import com.google.edwmigration.dumper.application.dumper.utils.ArchiveNameUtil;
-import java.sql.SQLException;
 import java.time.Clock;
 import java.util.List;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import javax.annotation.ParametersAreNonnullByDefault;
 
-@AutoService(Connector.class)
 @ParametersAreNonnullByDefault
+@RespectsArgumentAssessment
 public final class SnowflakeLiteConnector extends AbstractSnowflakeConnector {
 
   private static final String FORMAT_NAME = "snowflake-lite.zip";
@@ -43,16 +39,6 @@ public final class SnowflakeLiteConnector extends AbstractSnowflakeConnector {
 
   public SnowflakeLiteConnector() {
     super(NAME);
-  }
-
-  @Override
-  @Nonnull
-  public Handle open(ConnectorArguments arguments)
-      throws MetadataDumperUsageException, SQLException {
-    if (!arguments.isAssessment()) {
-      throw noAssessmentException();
-    }
-    return super.open(arguments);
   }
 
   @Override
@@ -71,15 +57,17 @@ public final class SnowflakeLiteConnector extends AbstractSnowflakeConnector {
   public final void addTasksTo(List<? super Task<?>> out, ConnectorArguments arguments) {
     out.add(new DumpMetadataTask(arguments, FORMAT_NAME));
     out.add(new FormatTask(FORMAT_NAME));
+    out.add(SnowflakeYamlSummaryTask.create(FORMAT_NAME, arguments));
     out.addAll(planner.generateLiteSpecificQueries());
   }
 
-  private static MetadataDumperUsageException noAssessmentException() {
-    String message =
-        String.format(
-            "The %s connector only supports extraction for Assessment."
-                + " Provide the '--%s' flag to use this connector.",
-            NAME, ConnectorArguments.OPT_ASSESSMENT);
-    return new MetadataDumperUsageException(message);
+  @Override
+  protected void validateForConnector(ConnectorArguments arguments) {
+    if (!arguments.isAssessment()) {
+      throw SnowflakeUsageException.missingAssessmentException(NAME);
+    }
+    if (!arguments.getDatabases().isEmpty()) {
+      throw SnowflakeUsageException.unsupportedFilter();
+    }
   }
 }

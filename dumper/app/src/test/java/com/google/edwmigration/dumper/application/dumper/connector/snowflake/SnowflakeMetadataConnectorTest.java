@@ -21,6 +21,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
@@ -37,22 +38,21 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import javax.annotation.Nonnull;
-import org.apache.commons.lang3.ArrayUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.junit.Assume;
 import org.junit.Test;
+import org.junit.experimental.theories.Theories;
+import org.junit.experimental.theories.Theory;
 import org.junit.runner.RunWith;
-import org.junit.runners.JUnit4;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /** @author shevek */
-@RunWith(JUnit4.class)
+@RunWith(Theories.class)
 public class SnowflakeMetadataConnectorTest extends AbstractSnowflakeConnectorExecutionTest {
 
   @SuppressWarnings("UnusedVariable")
@@ -147,20 +147,43 @@ public class SnowflakeMetadataConnectorTest extends AbstractSnowflakeConnectorEx
   }
 
   @Test
-  public void connector_generatesExpectedSql() throws IOException {
-    Map<String, String> actualSqls = collectSqlStatements();
-    TaskSqlMap expectedSqls =
+  public void connector_noAssessment_doesNotContainFeatures() throws IOException {
+
+    ImmutableMap<String, String> sqls = collectSqlStatements();
+
+    assertFalse(sqls.containsKey("features.csv"));
+  }
+
+  @Test
+  public void connector_noAssessment_generatesExpectedSql() throws IOException {
+    TypeReference<Map<String, String>> typeReference = new TypeReference<Map<String, String>>() {};
+    Map<String, String> expectedSqls =
         CoreMetadataDumpFormat.MAPPER.readValue(
             Resources.toString(
                 Resources.getResource("connector/snowflake/jdbc-tasks-sql.yaml"),
                 StandardCharsets.UTF_8),
-            TaskSqlMap.class);
+            typeReference);
 
-    assertEquals(expectedSqls.size(), actualSqls.size());
-    assertEquals(expectedSqls.keySet(), actualSqls.keySet());
-    for (String name : expectedSqls.keySet()) {
-      assertEquals(expectedSqls.get(name), actualSqls.get(name));
+    ImmutableMap<String, String> sqls = collectSqlStatements();
+
+    for (Entry<String, String> item : expectedSqls.entrySet()) {
+      String key = item.getKey();
+      assertTrue(key, sqls.containsKey(key));
+      assertEquals(key, sqls.get(key), item.getValue());
     }
+  }
+
+  @Test
+  public void connector_withAssessment_containsFeatures() throws IOException {
+
+    ImmutableMap<String, String> sqls = collectSqlStatements("--assessment");
+
+    assertTrue(sqls.containsKey("features.csv"));
+  }
+
+  @Theory
+  public void featuresQueryPathValue_refersToExistingPath(FeaturesQueryPath path) {
+    path.loadFile();
   }
 
   @Test
@@ -211,7 +234,8 @@ public class SnowflakeMetadataConnectorTest extends AbstractSnowflakeConnectorEx
         actualSqls.get("schemata-au.csv"));
     assertEquals(
         ImmutableList.of(
-            "SELECT catalog_name, schema_name FROM INFORMATION_SCHEMA.SCHEMATA WHERE SQL_OVERRIDE"),
+            "SELECT catalog_name, schema_name FROM db1.INFORMATION_SCHEMA.SCHEMATA WHERE SQL_OVERRIDE",
+            "SELECT catalog_name, schema_name FROM db2.INFORMATION_SCHEMA.SCHEMATA WHERE SQL_OVERRIDE"),
         actualSqls.get("schemata.csv"));
 
     // Two SHOW commands are executed and the result is appended to the same output file.
@@ -249,8 +273,12 @@ public class SnowflakeMetadataConnectorTest extends AbstractSnowflakeConnectorEx
       String... extraArgs) throws IOException {
     List<Task<?>> tasks = new ArrayList<>();
     SnowflakeMetadataConnector connector = new SnowflakeMetadataConnector();
-    String[] args = ArrayUtils.addAll(new String[] {"--connector", connector.getName()}, extraArgs);
-    connector.addTasksTo(tasks, new ConnectorArguments(args));
+    ImmutableList<String> standardArgs = ImmutableList.of("--connector", connector.getName());
+    ArrayList<String> args = new ArrayList<>(standardArgs);
+    for (String item : extraArgs) {
+      args.add(item);
+    }
+    connector.addTasksTo(tasks, ConnectorArguments.create(args));
     ImmutableMultimap.Builder<String, String> builder = ImmutableMultimap.builder();
     tasks.stream()
         .filter(t -> t instanceof JdbcSelectTask)
@@ -262,8 +290,7 @@ public class SnowflakeMetadataConnectorTest extends AbstractSnowflakeConnectorEx
   private static ImmutableMap<String, String> collectSqlStatements(String... extraArgs)
       throws IOException {
     return collectSqlStatementsAsMultimap(extraArgs).entries().stream()
-        .collect(ImmutableMap.toImmutableMap(Entry::getKey, Entry::getValue));
+        .collect(
+            ImmutableMap.toImmutableMap(Entry::getKey, Entry::getValue, (first, dup) -> first));
   }
-
-  static class TaskSqlMap extends HashMap<String, String> {}
 }
