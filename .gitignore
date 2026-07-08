@@ -18,11 +18,11 @@ node_modules
 /*.zip
 /*.tmp
 .DS_Store
-/progress.log.*
+progress.log.*
 
 /dbsync/**/bin/
 /dumper/**/bin/
-/dumper/app/progress.log.*
+/dumper/appprogress.log.*
 /permissions-migration/**/bin
 
 # Gradle build folders

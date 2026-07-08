@@ -84,28 +84,6 @@ dependencies {
 
     implementation libs.async.profiler
 
-    // Bridge dependencies: connectors extracted into plugin modules stay on the application
-    // classpath until the distribution ships them as plugins/ directories. Removed by the
-    // distribution flip. JDBC drivers and vendor SDKs now ship with their connector modules.
-    runtimeOnly project(':dumper:connectors:airflow')
-    runtimeOnly project(':dumper:connectors:bigquery')
-    runtimeOnly project(':dumper:connectors:cloudera')
-    runtimeOnly project(':dumper:connectors:generic')
-    runtimeOnly project(':dumper:connectors:greenplum')
-    runtimeOnly project(':dumper:connectors:hadoop')
-    runtimeOnly project(':dumper:connectors:hdfs')
-    runtimeOnly project(':dumper:connectors:hive')
-    runtimeOnly project(':dumper:connectors:mysql')
-    runtimeOnly project(':dumper:connectors:netezza')
-    runtimeOnly project(':dumper:connectors:oracle')
-    runtimeOnly project(':dumper:connectors:postgresql')
-    runtimeOnly project(':dumper:connectors:ranger')
-    runtimeOnly project(':dumper:connectors:redshift')
-    runtimeOnly project(':dumper:connectors:snowflake')
-    runtimeOnly project(':dumper:connectors:sqlserver')
-    runtimeOnly project(':dumper:connectors:teradata')
-    runtimeOnly project(':dumper:connectors:vertica')
-
     testFixturesApi testFixtures(project(':dumper:lib-common'))
     testFixturesApi testFixtures(project(':dumper:connector-api'))
     testFixturesApi project(':dumper:connector-api')
@@ -195,10 +173,19 @@ licenseReport {
         new com.github.jk1.license.render.InventoryHtmlReportRenderer("index.html", "Licenses of Third Party Dependencies")
     ]
     allowedLicensesFile = rootProject.file("gradle/licenses/license-allowed.json")
+    // Cover the plugin directories too: their dependencies ship in the zip but are no longer
+    // on the app's runtimeClasspath.
+    configurations = ['runtimeClasspath'] + ['airflow', 'bigquery', 'cloudera', 'generic',
+            'greenplum', 'hadoop', 'hdfs', 'hive', 'mysql', 'netezza', 'oracle', 'postgresql',
+            'ranger', 'redshift', 'snowflake', 'sqlserver', 'teradata', 'vertica']
+            .collect { "plugin${it.capitalize()}".toString() }
 }
 
 cyclonedxBom {
-    includeConfigs = ["runtimeClasspath"]
+    includeConfigs = ["runtimeClasspath"] + ['airflow', 'bigquery', 'cloudera', 'generic',
+            'greenplum', 'hadoop', 'hdfs', 'hive', 'mysql', 'netezza', 'oracle', 'postgresql',
+            'ranger', 'redshift', 'snowflake', 'sqlserver', 'teradata', 'vertica']
+            .collect { "plugin${it.capitalize()}".toString() }
     skipConfigs = ["compileClasspath", "testCompileClasspath"]
     projectType = "application"
     schemaVersion = "1.5"
@@ -222,12 +209,16 @@ tasks.named('distZip') {
 tasks.register('generateSourceMirror', Copy) {
     dependsOn 'compileJava'
     from {
+        def mirroredConfigurations = [configurations.runtimeClasspath] +
+                configurations.findAll { it.name.startsWith('plugin') && it.canBeResolved }
         dependencies.createArtifactResolutionQuery()
                 .forComponents(
-                        configurations.runtimeClasspath.incoming.resolutionResult
-                                .allDependencies
-                                .findAll { it instanceof ResolvedDependencyResult }
-                                .collect { it.selected.id }
+                        mirroredConfigurations.collectMany {
+                            it.incoming.resolutionResult
+                                    .allDependencies
+                                    .findAll { it instanceof ResolvedDependencyResult }
+                                    .collect { it.selected.id }
+                        }.unique()
                 )
                 .withArtifacts(JvmLibrary, SourcesArtifact)
                 .execute()
@@ -285,6 +276,53 @@ distributions {
             }
         }
     }
+}
+
+def connectorNames = ['airflow', 'bigquery', 'cloudera', 'generic', 'greenplum', 'hadoop',
+        'hdfs', 'hive', 'mysql', 'netezza', 'oracle', 'postgresql', 'ranger', 'redshift',
+        'snowflake', 'sqlserver', 'teradata', 'vertica']
+
+// group:name pairs already shipped in the core lib/ directory. Plugin directories carry only
+// what the core does not: the connector jar itself plus vendor-specific dependencies. Matching
+// ignores the version - plugin class loaders are parent-first, so the core's version would win
+// anyway and a second copy would be dead weight.
+def coreArtifactIds = provider {
+    configurations.runtimeClasspath.resolvedConfiguration.resolvedArtifacts
+            .collect { "${it.moduleVersion.id.group}:${it.name}".toString() } as Set
+}
+
+def assemblePluginTasks = connectorNames.collect { connectorName ->
+    def pluginConfiguration = configurations.create("plugin${connectorName.capitalize()}") {
+        canBeConsumed = false
+        attributes {
+            attribute(Usage.USAGE_ATTRIBUTE, objects.named(Usage, Usage.JAVA_RUNTIME))
+        }
+    }
+    dependencies.add(pluginConfiguration.name, project(":dumper:connectors:${connectorName}"))
+    tasks.register("assemblePlugin${connectorName.capitalize()}", Sync) {
+        dependsOn pluginConfiguration
+        into layout.buildDirectory.dir("plugins/${connectorName}")
+        from(files(provider {
+            def core = coreArtifactIds.get()
+            pluginConfiguration.resolvedConfiguration.resolvedArtifacts
+                    .findAll { !core.contains("${it.moduleVersion.id.group}:${it.name}".toString()) }
+                    .collect { it.file }
+        }))
+    }
+}
+
+tasks.register('assemblePlugins') {
+    dependsOn assemblePluginTasks
+}
+
+distributions.published.contents {
+    into('plugins') {
+        from(layout.buildDirectory.dir('plugins'))
+    }
+}
+
+['publishedDistZip', 'publishedDistTar', 'installPublishedDist'].collect(tasks::named).each {
+    it.configure { dependsOn('assemblePlugins') }
 }
 
 ['publishedDistZip', 'publishedDistTar', 'installPublishedDist'].collect(tasks::named).each {
