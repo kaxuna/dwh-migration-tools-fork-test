@@ -23,8 +23,14 @@ include(
 	':dumper:app',
 	':dumper:connectors:airflow',
 	':dumper:connectors:generic',
+	':dumper:connectors:greenplum',
 	':dumper:connectors:mysql',
 	':dumper:connectors:netezza',
+	':dumper:connectors:oracle',
+	':dumper:connectors:postgresql',
+	':dumper:connectors:redshift',
+	':dumper:connectors:snowflake',
 	':dumper:connectors:sqlserver',
+	':dumper:connectors:teradata',
 	':dumper:connectors:vertica'
 )

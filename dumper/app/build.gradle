@@ -108,9 +108,6 @@ dependencies {
     implementation libs.google.cloud.nio
     implementation libs.google.cloud.kms
     implementation libs.httpclient5
-    implementation libs.aws.java.sdk.redshift
-    implementation libs.aws.java.sdk.redshiftserverless
-    implementation libs.aws.java.sdk.cloudwatch
     implementation(libs.oozie.client) {
         exclude group: 'javax.jms', module: 'jms'
         exclude group: 'junit', module: 'junit'
@@ -132,20 +129,20 @@ dependencies {
 
     implementation libs.async.profiler
 
-    runtimeOnly libs.postgresql
-    runtimeOnly libs.snowflake.jdbc
-    runtimeOnly libs.redshift.jdbc
-    // JNA is required for the Snowflake MFA caching mechanism
-    runtimeOnly libs.jna
-
     // Bridge dependencies: connectors extracted into plugin modules stay on the application
     // classpath until the distribution ships them as plugins/ directories. Removed by the
-    // distribution flip.
+    // distribution flip. JDBC drivers and vendor SDKs now ship with their connector modules.
     runtimeOnly project(':dumper:connectors:airflow')
     runtimeOnly project(':dumper:connectors:generic')
+    runtimeOnly project(':dumper:connectors:greenplum')
     runtimeOnly project(':dumper:connectors:mysql')
     runtimeOnly project(':dumper:connectors:netezza')
+    runtimeOnly project(':dumper:connectors:oracle')
+    runtimeOnly project(':dumper:connectors:postgresql')
+    runtimeOnly project(':dumper:connectors:redshift')
+    runtimeOnly project(':dumper:connectors:snowflake')
     runtimeOnly project(':dumper:connectors:sqlserver')
+    runtimeOnly project(':dumper:connectors:teradata')
     runtimeOnly project(':dumper:connectors:vertica')
 
     testFixturesApi testFixtures(project(':dumper:lib-common'))
