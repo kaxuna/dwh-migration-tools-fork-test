@@ -24,7 +24,10 @@ Since the modular restructuring, the Dumper ships each connector as a runtime pl
 distribution zip contains a slim `lib/` (the core CLI) and one `plugins/<vendor>/` directory
 per connector with that vendor's jars. Behavior and the command line are unchanged.
 
-- **Slim a deployment:** delete the `plugins/<vendor>/` directories you do not need.
+- **Slim a deployment:** delete the `plugins/<vendor>/` directories you do not need, or build
+  a single-vendor zip directly: `./gradlew :dumper:app:snowflakeDistZip` (works for any vendor,
+  e.g. `teradataDistZip`) produces `dwh-migration-dumper-<vendor>.zip` with the core CLI and
+  just that plugin.
 - **Custom plugins location:** set `-Ddumper.plugins.dir=<path>` or the
   `DWH_MIGRATION_DUMPER_PLUGINS` environment variable; the default is `plugins/` next to
   `bin/` and `lib/`.

@@ -315,6 +315,26 @@ tasks.register('assemblePlugins') {
     dependsOn assemblePluginTasks
 }
 
+// Single-vendor distributions: the core CLI plus exactly one plugin directory, e.g.
+// `./gradlew :dumper:app:snowflakeDistZip` -> build/distributions/dwh-migration-dumper-snowflake.zip
+connectorNames.each { connectorName ->
+    tasks.register("${connectorName}DistZip", Zip) {
+        group = 'distribution'
+        description = "Builds a distribution zip containing only the ${connectorName} connector plugin."
+        dependsOn 'installDist', "assemblePlugin${connectorName.capitalize()}"
+        archiveBaseName = "dwh-migration-dumper-${connectorName}"
+        destinationDirectory = layout.buildDirectory.dir('distributions')
+        into("dwh-migration-dumper-${connectorName}") {
+            from(layout.buildDirectory.dir('install/app'))
+            from('src/main/sh/dwh-migration-dumper') { into 'bin' }
+            from('src/main/sh/dwh-migration-dumper.bat') { into 'bin' }
+            into("plugins/${connectorName}") {
+                from(layout.buildDirectory.dir("plugins/${connectorName}"))
+            }
+        }
+    }
+}
+
 distributions.published.contents {
     into('plugins') {
         from(layout.buildDirectory.dir('plugins'))
